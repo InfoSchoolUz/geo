@@ -1,243 +1,186 @@
 # app.py
-# Single-file, production-ready Streamlit app
-# Global stats map: Population, Weather, GDP, Internet, CO2
-# Data sources (no API key):
-# - World Bank (population, GDP per capita, internet users)
-# - Our World in Data (CO2)
-# - Open-Meteo (current weather)
-
-import io
-import math
-import requests
-import pandas as pd
 import streamlit as st
+import pandas as pd
 import pydeck as pdk
+import requests
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="🌍 Global Stats Map (Real Data)", layout="wide")
+st.set_page_config(page_title="🌍 Global Events Map (Earthquakes + Conflicts)", layout="wide")
 
 # =========================
-# CONFIG
+# CONFIG (no API keys)
 # =========================
-WORLD_GEOJSON_URL = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
-WB_API = "https://api.worldbank.org/v2/country/all/indicator/{indicator}?date=2022&format=json&per_page=20000"
-OWID_CO2_CSV = "https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.csv"
-OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
-
-INDICATORS = {
-    "Population": "SP.POP.TOTL",
-    "GDP per Capita (USD)": "NY.GDP.PCAP.CD",
-    "Internet Users (%)": "IT.NET.USER.ZS",
-}
-
-METRICS = ["Population", "GDP per Capita (USD)", "Internet Users (%)", "CO2 (Mt)", "Temperature (°C)"]
+USGS_FEED = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+# ACLED public export (CSV). If it fails, we fallback gracefully.
+ACLED_CSV = "https://api.acleddata.com/acled/read?format=csv"
 
 # =========================
 # HELPERS
 # =========================
-def clamp(x, lo, hi):
-    return max(lo, min(hi, x))
+def safe_get_json(url, timeout=20):
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
 
-def human_format(n):
-    if n is None or (isinstance(n, float) and math.isnan(n)):
-        return "—"
-    n = float(n)
-    for unit in ["", "K", "M", "B", "T"]:
-        if abs(n) < 1000.0:
-            return f"{n:.2f}{unit}"
-        n /= 1000.0
-    return f"{n:.2f}P"
+def safe_get_csv(url, timeout=20):
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        return pd.read_csv(pd.io.common.BytesIO(r.content))
+    except Exception:
+        return pd.DataFrame()
 
 # =========================
-# DATA LOADERS (cached)
+# LOADERS (cached)
 # =========================
-@st.cache_data(ttl=3600)
-def load_world_geojson():
-    r = requests.get(WORLD_GEOJSON_URL, timeout=20)
-    r.raise_for_status()
-    return r.json()
-
-@st.cache_data(ttl=3600)
-def load_worldbank_indicator(indicator_code):
-    url = WB_API.format(indicator=indicator_code)
-    r = requests.get(url, timeout=20)
-    r.raise_for_status()
-    js = r.json()
+@st.cache_data(ttl=300)
+def load_earthquakes():
+    js = safe_get_json(USGS_FEED)
     rows = []
-    if isinstance(js, list) and len(js) > 1:
-        for item in js[1]:
+    if js and "features" in js:
+        for f in js["features"]:
+            prop = f.get("properties", {})
+            geom = f.get("geometry", {})
+            coords = geom.get("coordinates", [None, None, None])
+            lon, lat = coords[0], coords[1]
+            mag = prop.get("mag")
+            place = prop.get("place")
+            time_ms = prop.get("time")
+            if lat is None or lon is None or mag is None:
+                continue
+            t = datetime.utcfromtimestamp(time_ms/1000) if time_ms else None
             rows.append({
-                "iso3": item["countryiso3code"],
-                "value": item["value"]
+                "lat": lat,
+                "lon": lon,
+                "magnitude": float(mag),
+                "place": place,
+                "time": t
             })
-    df = pd.DataFrame(rows)
-    df = df.dropna()
-    df = df[df["iso3"].str.len() == 3]
-    return df
-
-@st.cache_data(ttl=3600)
-def load_owid_co2():
-    r = requests.get(OWID_CO2_CSV, timeout=30)
-    r.raise_for_status()
-    df = pd.read_csv(io.StringIO(r.text))
-    # latest available year per country
-    df = df.sort_values(["iso_code", "year"]).groupby("iso_code", as_index=False).tail(1)
-    df = df[["iso_code", "co2"]].rename(columns={"iso_code": "iso3", "co2": "value"})
-    # convert to megatonnes (already Mt in OWID "co2")
-    df = df.dropna()
-    df = df[df["iso3"].str.len() == 3]
-    return df
-
-@st.cache_data(ttl=600)
-def load_country_centroids(geojson):
-    feats = geojson.get("features", [])
-    rows = []
-    for f in feats:
-        iso3 = f["id"]
-        coords = f["geometry"]["coordinates"]
-        # centroid (approx) from polygon/multipolygon
-        pts = []
-        if f["geometry"]["type"] == "Polygon":
-            for ring in coords:
-                pts += ring
-        elif f["geometry"]["type"] == "MultiPolygon":
-            for poly in coords:
-                for ring in poly:
-                    pts += ring
-        if pts:
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            lon = sum(xs) / len(xs)
-            lat = sum(ys) / len(ys)
-            rows.append({"iso3": iso3, "lat": lat, "lon": lon})
     return pd.DataFrame(rows)
 
 @st.cache_data(ttl=600)
-def fetch_weather_for_points(points_df):
-    if points_df.empty:
-        return pd.DataFrame(columns=["iso3", "temperature"])
-    lats = ",".join(points_df["lat"].round(4).astype(str))
-    lons = ",".join(points_df["lon"].round(4).astype(str))
-    params = {
-        "latitude": lats,
-        "longitude": lons,
-        "current_weather": True,
-        "timezone": "auto"
-    }
-    try:
-        r = requests.get(OPEN_METEO, params=params, timeout=20)
-        r.raise_for_status()
-        js = r.json()
-        cw = js.get("current_weather", [])
-        temps = []
-        for i in range(len(points_df)):
-            t = None
-            if isinstance(cw, list) and i < len(cw):
-                t = cw[i].get("temperature")
-            temps.append(t)
-        out = points_df[["iso3"]].copy()
-        out["value"] = temps
-        return out.dropna()
-    except Exception:
-        return pd.DataFrame(columns=["iso3", "value"])
+def load_conflicts():
+    df = safe_get_csv(ACLED_CSV)
+    # Normalize minimal columns if present
+    if df.empty:
+        return pd.DataFrame(columns=["latitude","longitude","event_type","fatalities","event_date","country"])
+    cols = {c.lower(): c for c in df.columns}
+    # try to map common ACLED fields
+    lat_c = cols.get("latitude")
+    lon_c = cols.get("longitude")
+    type_c = cols.get("event_type") or cols.get("event type")
+    fat_c = cols.get("fatalities")
+    date_c = cols.get("event_date") or cols.get("event date")
+    country_c = cols.get("country")
+    if not lat_c or not lon_c:
+        return pd.DataFrame(columns=["latitude","longitude","event_type","fatalities","event_date","country"])
+    out = pd.DataFrame({
+        "lat": pd.to_numeric(df[lat_c], errors="coerce"),
+        "lon": pd.to_numeric(df[lon_c], errors="coerce"),
+        "event_type": df[type_c] if type_c in df else "Event",
+        "fatalities": pd.to_numeric(df[fat_c], errors="coerce") if fat_c in df else 0,
+        "event_date": pd.to_datetime(df[date_c], errors="coerce") if date_c in df else pd.NaT,
+        "country": df[country_c] if country_c in df else ""
+    }).dropna(subset=["lat","lon"])
+    # keep last 30 days for clarity
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    if "event_date" in out and out["event_date"].notna().any():
+        out = out[out["event_date"] >= cutoff]
+    return out
 
 # =========================
 # UI
 # =========================
-st.title("🌍 Global Statistics Map (Real Data, Single File)")
-metric = st.sidebar.selectbox("Metric", METRICS, index=0)
+st.title("🌍 Global Events Map")
+st.caption("Real-time earthquakes (USGS) + recent conflicts (ACLED public). No API keys.")
+
+with st.sidebar:
+    st.header("Filters")
+    show_eq = st.toggle("Show Earthquakes", True)
+    show_cf = st.toggle("Show Conflicts", True)
+
+    mag_min = st.slider("Min Magnitude", 0.0, 8.0, 2.5, 0.1)
+    fat_min = st.slider("Min Fatalities (conflicts)", 0, 500, 0, 5)
 
 # =========================
-# LOAD BASE DATA
+# DATA
 # =========================
-geojson = load_world_geojson()
+eq = load_earthquakes()
+cf = load_conflicts()
 
-# base df with iso3 codes from geojson
-base = pd.DataFrame([{"iso3": f["id"]} for f in geojson["features"]])
+if show_eq and not eq.empty:
+    eq = eq[eq["magnitude"] >= mag_min]
 
-# load selected metric
-if metric in INDICATORS:
-    df_val = load_worldbank_indicator(INDICATORS[metric])
-elif metric == "CO2 (Mt)":
-    df_val = load_owid_co2()
-elif metric == "Temperature (°C)":
-    centroids = load_country_centroids(geojson)
-    df_val = fetch_weather_for_points(centroids)
-else:
-    df_val = pd.DataFrame(columns=["iso3", "value"])
-
-data = base.merge(df_val, on="iso3", how="left")
-
-# normalize values for coloring
-vals = data["value"].dropna()
-vmin = float(vals.min()) if len(vals) else 0.0
-vmax = float(vals.max()) if len(vals) else 1.0
-
-def color_for(v):
-    if v is None or (isinstance(v, float) and math.isnan(v)):
-        return [200, 200, 200, 80]
-    # normalize 0..1
-    t = 0 if vmax == vmin else (float(v) - vmin) / (vmax - vmin)
-    # blue -> red gradient
-    r = int(255 * t)
-    b = int(255 * (1 - t))
-    return [r, 80, b, 180]
-
-data["color"] = data["value"].apply(color_for)
-data["label"] = data["value"].apply(human_format)
+if show_cf and not cf.empty:
+    cf = cf[cf["fatalities"].fillna(0) >= fat_min]
 
 # =========================
-# MAP (Choropleth)
+# LAYERS
 # =========================
-layer = pdk.Layer(
-    "GeoJsonLayer",
-    data=geojson,
-    get_fill_color="properties.color",
-    get_line_color=[50, 50, 50],
-    line_width_min_pixels=0.5,
-    pickable=True,
-    auto_highlight=True,
-)
+layers = []
 
-# inject properties.color into geojson features
-for f in geojson["features"]:
-    iso3 = f["id"]
-    row = data.loc[data["iso3"] == iso3]
-    if len(row):
-        f["properties"]["color"] = row.iloc[0]["color"]
-        f["properties"]["label"] = row.iloc[0]["label"]
-    else:
-        f["properties"]["color"] = [200, 200, 200, 80]
-        f["properties"]["label"] = "—"
+# Earthquakes layer (size by magnitude)
+if show_eq and not eq.empty:
+    eq_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=eq,
+        get_position='[lon, lat]',
+        get_radius="magnitude * 20000",
+        get_fill_color='[255, 140, 0, 180]',  # orange
+        pickable=True,
+    )
+    layers.append(eq_layer)
+
+# Conflicts layer (size by fatalities)
+if show_cf and not cf.empty:
+    cf_layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=cf,
+        get_position='[lon, lat]',
+        get_radius="max(20000, fatalities * 15000)",
+        get_fill_color='[220, 20, 60, 180]',  # crimson
+        pickable=True,
+    )
+    layers.append(cf_layer)
 
 view = pdk.ViewState(latitude=20, longitude=0, zoom=1.2)
 
 tooltip = {
-    "html": f"<b>{{name}}</b><br/>{metric}: {{label}}",
-    "style": {"backgroundColor": "black", "color": "white"},
+    "html": """
+    <b>{place}</b><br/>
+    Magnitude: {magnitude}<br/>
+    Time: {time}
+    """,
+    "style": {"backgroundColor": "black", "color": "white"}
 }
 
-st.pydeck_chart(pdk.Deck(
-    layers=[layer],
-    initial_view_state=view,
-    tooltip=tooltip
-))
+# Separate tooltip for conflicts via Deck "getTooltip" limitation workaround:
+# we include both fields; if missing, they render blank
+tooltip["html"] += """
+<br/><br/>
+<b>{country}</b><br/>
+Type: {event_type}<br/>
+Fatalities: {fatalities}<br/>
+Date: {event_date}
+"""
+
+st.pydeck_chart(pdk.Deck(layers=layers, initial_view_state=view, tooltip=tooltip))
 
 # =========================
 # KPIs
 # =========================
-col1, col2, col3 = st.columns(3)
-col1.metric("Countries (with data)", int(data["value"].notna().sum()))
-col2.metric("Min", human_format(vmin))
-col3.metric("Max", human_format(vmax))
+c1, c2 = st.columns(2)
+c1.metric("Earthquakes (filtered)", int(len(eq)) if show_eq else 0)
+c2.metric("Conflicts (filtered)", int(len(cf)) if show_cf else 0)
 
 # =========================
-# TABLE
+# TABLES
 # =========================
-st.subheader("📊 Data Table")
-st.dataframe(data.sort_values("value", ascending=False), use_container_width=True)
+with st.expander("📊 Earthquakes Data"):
+    st.dataframe(eq.sort_values("magnitude", ascending=False), use_container_width=True)
 
-# =========================
-# DOWNLOAD
-# =========================
-csv = data.to_csv(index=False).encode("utf-8")
-st.download_button("⬇ Download CSV", csv, "global_stats.csv", "text/csv")
+with st.expander("📊 Conflicts Data"):
+    st.dataframe(cf.sort_values("fatalities", ascending=False), use_container_width=True)
