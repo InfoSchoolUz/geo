@@ -2,92 +2,160 @@
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
+import requests
+from typing import List, Dict, Any
 
-st.set_page_config(page_title="Global Employees Map", layout="wide")
+st.set_page_config(page_title="🌤 Global Weather Map PRO", layout="wide")
 
-# ======================
-# SAMPLE DATA (extendable)
-# ======================
-data = pd.DataFrame([
-    {"name": "Germany", "lat": 51.1657, "lon": 10.4515, "employees": 102},
-    {"name": "USA", "lat": 37.0902, "lon": -95.7129, "employees": 600},
-    {"name": "Uzbekistan", "lat": 41.3775, "lon": 64.5853, "employees": 80},
-    {"name": "Tashkent", "lat": 41.2995, "lon": 69.2401, "employees": 35},
-    {"name": "Samarkand", "lat": 39.6542, "lon": 66.9597, "employees": 20},
-    {"name": "Berlin", "lat": 52.5200, "lon": 13.4050, "employees": 60},
-    {"name": "New York", "lat": 40.7128, "lon": -74.0060, "employees": 150},
+# =========================
+# CONFIG
+# =========================
+OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+
+DEFAULT_CITIES = [
+    {"name": "Berlin", "lat": 52.5200, "lon": 13.4050},
+    {"name": "New York", "lat": 40.7128, "lon": -74.0060},
+    {"name": "Tashkent", "lat": 41.2995, "lon": 69.2401},
+    {"name": "Tokyo", "lat": 35.6762, "lon": 139.6503},
+    {"name": "Sydney", "lat": -33.8688, "lon": 151.2093},
+]
+
+COUNTRY_DATA = pd.DataFrame([
+    {"country": "Germany", "lat": 51.1657, "lon": 10.4515},
+    {"country": "USA", "lat": 37.0902, "lon": -95.7129},
+    {"country": "Uzbekistan", "lat": 41.3775, "lon": 64.5853},
+    {"country": "Japan", "lat": 36.2048, "lon": 138.2529},
 ])
 
-# ======================
-# UI
-# ======================
-st.title("🌍 Global Employees Interactive Map")
-st.markdown("Hover over locations to see employee counts")
+# =========================
+# UTILS
+# =========================
+def validate_df(df):
+    required = {"name", "lat", "lon"}
+    if not required.issubset(df.columns):
+        raise ValueError("CSV must have name, lat, lon")
+    return df.dropna()
 
-# ======================
-# LAYER (interactive)
-# ======================
-layer = pdk.Layer(
+@st.cache_data(ttl=600)
+def fetch_weather(points):
+    lats = ",".join(str(p["lat"]) for p in points)
+    lons = ",".join(str(p["lon"]) for p in points)
+
+    params = {
+        "latitude": lats,
+        "longitude": lons,
+        "current_weather": True,
+        "hourly": "temperature_2m",
+        "timezone": "auto",
+    }
+
+    try:
+        r = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+
+        result = []
+        cw = data.get("current_weather", [])
+        hourly = data.get("hourly", {})
+
+        for i, p in enumerate(points):
+            temp = cw[i]["temperature"] if isinstance(cw, list) and i < len(cw) else None
+            result.append({
+                "name": p["name"],
+                "lat": p["lat"],
+                "lon": p["lon"],
+                "temperature": temp,
+                "trend": hourly.get("temperature_2m", [])[:24]
+            })
+        return result
+
+    except:
+        return [{"name": p["name"], "lat": p["lat"], "lon": p["lon"], "temperature": None, "trend": []} for p in points]
+
+# =========================
+# LOAD
+# =========================
+uploaded = st.file_uploader("Upload CSV", type=["csv"])
+
+if uploaded:
+    df = validate_df(pd.read_csv(uploaded))
+else:
+    df = pd.DataFrame(DEFAULT_CITIES)
+
+points = df.to_dict("records")
+weather = fetch_weather(points)
+data = pd.DataFrame(weather)
+
+# =========================
+# SIDEBAR
+# =========================
+st.sidebar.title("Controls")
+
+selected = st.sidebar.selectbox("Select City for Trend", data["name"])
+
+# =========================
+# HEATMAP LAYER
+# =========================
+heatmap = pdk.Layer(
+    "HeatmapLayer",
+    data=data,
+    get_position='[lon, lat]',
+    get_weight="temperature",
+    radiusPixels=60,
+)
+
+# =========================
+# SCATTER LAYER
+# =========================
+scatter = pdk.Layer(
     "ScatterplotLayer",
     data=data,
     get_position='[lon, lat]',
-    get_radius="employees * 1000",
-    get_fill_color='[255 - employees, 50, employees * 2]',
+    get_radius="temperature * 3000",
+    get_fill_color='[255, 50, 50, 160]',
     pickable=True,
 )
 
-# ======================
-# VIEW
-# ======================
-view_state = pdk.ViewState(
-    latitude=30,
-    longitude=0,
-    zoom=1.5,
-    pitch=0,
+# =========================
+# COUNTRY LAYER (pseudo polygon)
+# =========================
+country_layer = pdk.Layer(
+    "ScatterplotLayer",
+    data=COUNTRY_DATA,
+    get_position='[lon, lat]',
+    get_radius=300000,
+    get_fill_color='[50, 50, 200, 60]',
+    pickable=True,
 )
 
-# ======================
-# TOOLTIP
-# ======================
+# =========================
+# MAP
+# =========================
 tooltip = {
-    "html": "<b>{name}</b><br/>Employees: {employees}",
-    "style": {"backgroundColor": "black", "color": "white"}
+    "html": "<b>{name}</b><br/>Temp: {temperature}°C",
+    "style": {"backgroundColor": "black", "color": "white"},
 }
 
-# ======================
-# MAP RENDER
-# ======================
 st.pydeck_chart(pdk.Deck(
-    layers=[layer],
-    initial_view_state=view_state,
+    layers=[heatmap, scatter, country_layer],
+    initial_view_state=pdk.ViewState(latitude=20, longitude=0, zoom=1.2),
     tooltip=tooltip
 ))
 
-# ======================
-# OPTIONAL TABLE VIEW
-# ======================
-with st.expander("📊 Data Table"):
-    st.dataframe(data)
+# =========================
+# TREND CHART
+# =========================
+st.subheader("📈 24h Temperature Trend")
 
-# ======================
-# ADD DATA UI
-# ======================
-st.subheader("➕ Add New Location")
+trend_data = data[data["name"] == selected]["trend"].values[0]
+if trend_data:
+    trend_df = pd.DataFrame({"temp": trend_data})
+    st.line_chart(trend_df)
+else:
+    st.warning("No trend data")
 
-with st.form("add_data"):
-    name = st.text_input("Location Name")
-    lat = st.number_input("Latitude", format="%.6f")
-    lon = st.number_input("Longitude", format="%.6f")
-    employees = st.number_input("Employees", min_value=1)
-
-    submitted = st.form_submit_button("Add")
-
-    if submitted:
-        new_row = pd.DataFrame([{
-            "name": name,
-            "lat": lat,
-            "lon": lon,
-            "employees": employees
-        }])
-        data = pd.concat([data, new_row], ignore_index=True)
-        st.success("Added successfully! Refresh to see update.")
+# =========================
+# TABLE
+# =========================
+st.subheader("📊 Data")
+st.dataframe(data)
