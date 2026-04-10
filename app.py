@@ -1,114 +1,149 @@
 import streamlit as st
 import requests
 import json
+import pandas as pd
 import folium
 from streamlit_folium import st_folium
 
 st.set_page_config(layout="wide")
 
-st.title("🌍 Global Statistics Map (No API Key)")
+st.title("🌍 Global Analitika Platformasi")
 
-# ===== STATIC DATA =====
-stats = {
-    "Uzbekistan": {"gdp": 80, "literacy": 99, "risk": "Low"},
-    "United States of America": {"gdp": 25000, "literacy": 99, "risk": "Low"},
-    "Ukraine": {"gdp": 200, "literacy": 99, "risk": "High"},
-    "Palestine": {"gdp": 20, "literacy": 97, "risk": "High"},
-}
+# ===== LOAD DATA =====
+@st.cache_data
+def load_countries():
+    return requests.get("https://restcountries.com/v3.1/all").json()
 
-# ===== MAP INIT =====
-m = folium.Map(location=[20, 0], zoom_start=2)
+@st.cache_data
+def load_stats():
+    with open("stats.json", "r", encoding="utf-8") as f:
+        return json.load(f)
 
-# ===== COLOR LOGIC =====
-def get_color(country):
-    d = stats.get(country)
-    if not d:
-        return "gray"
-    if d["gdp"] > 10000:
-        return "green"
-    elif d["gdp"] > 1000:
-        return "orange"
-    return "red"
+countries_data = load_countries()
+stats = load_stats()
 
-# ===== LOAD GEOJSON =====
+# ===== FLAG =====
+def flag(code):
+    return ''.join(chr(127397 + ord(c)) for c in code.upper())
+
+country_dict = {c["name"]["common"]: c.get("cca2","") for c in countries_data}
+countries = sorted(country_dict.keys())
+
+selected = st.selectbox(
+    "🌍 Davlatni tanlang:",
+    countries,
+    format_func=lambda x: f"{flag(country_dict[x])} {x}"
+)
+
+country = next(c for c in countries_data if c["name"]["common"] == selected)
+s = stats.get(selected, {})
+
+# ===== MAP =====
+st.subheader("🗺 Interaktiv xarita")
+
+m = folium.Map(location=[20,0], zoom_start=2)
+
+# GeoJSON
 geo_url = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
 geo_data = requests.get(geo_url).json()
 
-# ===== COUNTRY CLICK FUNCTION =====
-selected_country = st.session_state.get("country", None)
+def get_color(name):
+    d = stats.get(name)
+    if not d: return "gray"
+    if d["gdp"] > 10000: return "green"
+    if d["gdp"] > 1000: return "orange"
+    return "red"
 
-def style_function(feature):
-    return {
-        "fillColor": get_color(feature["properties"]["name"]),
-        "color": "blue",
-        "weight": 1,
-        "fillOpacity": 0.5,
-    }
-
-# Add GeoJSON
 folium.GeoJson(
     geo_data,
-    style_function=style_function,
-    name="countries",
+    style_function=lambda f: {
+        "fillColor": get_color(f["properties"]["name"]),
+        "color": "blue",
+        "weight": 1,
+        "fillOpacity": 0.6,
+    },
+    tooltip=folium.GeoJsonTooltip(fields=["name"])
 ).add_to(m)
 
-# ===== EARTHQUAKE LAYER =====
-eq_url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
-eq_data = requests.get(eq_url).json()
+# ===== EARTHQUAKE =====
+eq = requests.get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson").json()
 
-for eq in eq_data["features"]:
-    coords = eq["geometry"]["coordinates"]
+for q in eq["features"]:
+    lng, lat, *_ = q["geometry"]["coordinates"]
     folium.CircleMarker(
-        location=[coords[1], coords[0]],
+        location=[lat, lng],
         radius=3,
         color="red",
         fill=True
     ).add_to(m)
 
-# ===== DISPLAY MAP =====
-map_data = st_folium(m, width=1200, height=600)
+# ===== CONFLICT (STATIC) =====
+conflicts = [
+    {"name": "Ukraine War", "lat": 48.3, "lon": 31.1},
+    {"name": "Gaza Conflict", "lat": 31.5, "lon": 34.4}
+]
 
-# ===== CLICK DETECTION =====
-if map_data and map_data["last_clicked"]:
-    lat = map_data["last_clicked"]["lat"]
-    lng = map_data["last_clicked"]["lng"]
+for c in conflicts:
+    folium.Marker(
+        location=[c["lat"], c["lon"]],
+        popup="⚔ " + c["name"],
+        icon=folium.Icon(color="red")
+    ).add_to(m)
 
-    st.session_state["coords"] = (lat, lng)
+st_folium(m, width=1200, height=500)
 
 # ===== COUNTRY INFO =====
-st.subheader("📊 Country Info")
+st.subheader("📊 Davlat ma'lumotlari")
 
-country_name = st.text_input("Enter country name (English):")
+col1, col2 = st.columns(2)
 
-def generate_insight(s):
-    if not s:
-        return "No data"
-    if s["risk"] == "High":
-        return "Geopolitical tension region"
-    if s["gdp"] > 10000:
-        return "Highly developed economy"
-    if s["gdp"] > 1000:
-        return "Developing country"
-    return "Low income region"
+with col1:
+    st.image(country["flags"]["png"], width=150)
+    st.write("👥 Aholi:", f"{country['population']:,}")
+    st.write("🏙 Poytaxt:", country.get("capital", ["N/A"])[0])
+    st.write("🌍 Mintaqa:", country["region"])
 
-if country_name:
-    try:
-        url = f"https://restcountries.com/v3.1/name/{country_name}"
-        data = requests.get(url).json()[0]
+with col2:
+    st.write("💰 GDP:", s.get("gdp", "N/A"))
+    st.write("📚 Savodxonlik:", s.get("literacy", "N/A"))
+    st.write("🌐 Internet:", s.get("internet", "N/A"))
 
-        s = stats.get(country_name, {})
+# ===== CHART =====
+st.subheader("📈 Grafik")
 
-        st.image(data["flags"]["png"])
-        st.write("👥 Population:", f"{data['population']:,}")
-        st.write("🏙 Capital:", data.get("capital", ["N/A"])[0])
-        st.write("🌍 Region:", data["region"])
-        st.write("📐 Area:", data["area"], "km²")
+df = pd.DataFrame([
+    {"metric": "GDP", "value": s.get("gdp", 0)},
+    {"metric": "Literacy", "value": s.get("literacy", 0)},
+    {"metric": "Internet", "value": s.get("internet", 0)}
+])
 
-        st.write("💰 GDP:", s.get("gdp", "N/A"))
-        st.write("📚 Literacy:", s.get("literacy", "N/A"))
-        st.write("⚠ Risk:", s.get("risk", "Unknown"))
+st.bar_chart(df.set_index("metric"))
 
-        st.success("🧠 Insight: " + generate_insight(s))
+# ===== INSIGHT =====
+def insight(s):
+    if not s: return "No data"
+    if s.get("risk") == "High": return "⚠ Xavfli hudud"
+    if s.get("gdp",0) > 10000: return "💎 Rivojlangan"
+    if s.get("gdp",0) > 1000: return "📈 Rivojlanmoqda"
+    return "📉 Past iqtisod"
 
-    except:
-        st.error("Country not found")
+st.success("🧠 Tahlil: " + insight(s))
+
+# ===== EXPORT =====
+st.subheader("📥 Export")
+
+export_data = {
+    "Country": selected,
+    "Population": country["population"],
+    "GDP": s.get("gdp"),
+    "Literacy": s.get("literacy"),
+    "Internet": s.get("internet")
+}
+
+df_export = pd.DataFrame([export_data])
+
+st.download_button(
+    "📥 Excel yuklab olish",
+    df_export.to_csv(index=False),
+    file_name=f"{selected}_data.csv"
+    )
