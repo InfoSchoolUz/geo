@@ -1,161 +1,243 @@
 # app.py
-import streamlit as st
-import pandas as pd
-import pydeck as pdk
-import requests
-from typing import List, Dict, Any
+# Single-file, production-ready Streamlit app
+# Global stats map: Population, Weather, GDP, Internet, CO2
+# Data sources (no API key):
+# - World Bank (population, GDP per capita, internet users)
+# - Our World in Data (CO2)
+# - Open-Meteo (current weather)
 
-st.set_page_config(page_title="🌤 Global Weather Map PRO", layout="wide")
+import io
+import math
+import requests
+import pandas as pd
+import streamlit as st
+import pydeck as pdk
+
+st.set_page_config(page_title="🌍 Global Stats Map (Real Data)", layout="wide")
 
 # =========================
 # CONFIG
 # =========================
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+WORLD_GEOJSON_URL = "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json"
+WB_API = "https://api.worldbank.org/v2/country/all/indicator/{indicator}?date=2022&format=json&per_page=20000"
+OWID_CO2_CSV = "https://raw.githubusercontent.com/owid/co2-data/master/owid-co2-data.csv"
+OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 
-DEFAULT_CITIES = [
-    {"name": "Berlin", "lat": 52.5200, "lon": 13.4050},
-    {"name": "New York", "lat": 40.7128, "lon": -74.0060},
-    {"name": "Tashkent", "lat": 41.2995, "lon": 69.2401},
-    {"name": "Tokyo", "lat": 35.6762, "lon": 139.6503},
-    {"name": "Sydney", "lat": -33.8688, "lon": 151.2093},
-]
+INDICATORS = {
+    "Population": "SP.POP.TOTL",
+    "GDP per Capita (USD)": "NY.GDP.PCAP.CD",
+    "Internet Users (%)": "IT.NET.USER.ZS",
+}
 
-COUNTRY_DATA = pd.DataFrame([
-    {"country": "Germany", "lat": 51.1657, "lon": 10.4515},
-    {"country": "USA", "lat": 37.0902, "lon": -95.7129},
-    {"country": "Uzbekistan", "lat": 41.3775, "lon": 64.5853},
-    {"country": "Japan", "lat": 36.2048, "lon": 138.2529},
-])
+METRICS = ["Population", "GDP per Capita (USD)", "Internet Users (%)", "CO2 (Mt)", "Temperature (°C)"]
 
 # =========================
-# UTILS
+# HELPERS
 # =========================
-def validate_df(df):
-    required = {"name", "lat", "lon"}
-    if not required.issubset(df.columns):
-        raise ValueError("CSV must have name, lat, lon")
-    return df.dropna()
+def clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+def human_format(n):
+    if n is None or (isinstance(n, float) and math.isnan(n)):
+        return "—"
+    n = float(n)
+    for unit in ["", "K", "M", "B", "T"]:
+        if abs(n) < 1000.0:
+            return f"{n:.2f}{unit}"
+        n /= 1000.0
+    return f"{n:.2f}P"
+
+# =========================
+# DATA LOADERS (cached)
+# =========================
+@st.cache_data(ttl=3600)
+def load_world_geojson():
+    r = requests.get(WORLD_GEOJSON_URL, timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+@st.cache_data(ttl=3600)
+def load_worldbank_indicator(indicator_code):
+    url = WB_API.format(indicator=indicator_code)
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    js = r.json()
+    rows = []
+    if isinstance(js, list) and len(js) > 1:
+        for item in js[1]:
+            rows.append({
+                "iso3": item["countryiso3code"],
+                "value": item["value"]
+            })
+    df = pd.DataFrame(rows)
+    df = df.dropna()
+    df = df[df["iso3"].str.len() == 3]
+    return df
+
+@st.cache_data(ttl=3600)
+def load_owid_co2():
+    r = requests.get(OWID_CO2_CSV, timeout=30)
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    # latest available year per country
+    df = df.sort_values(["iso_code", "year"]).groupby("iso_code", as_index=False).tail(1)
+    df = df[["iso_code", "co2"]].rename(columns={"iso_code": "iso3", "co2": "value"})
+    # convert to megatonnes (already Mt in OWID "co2")
+    df = df.dropna()
+    df = df[df["iso3"].str.len() == 3]
+    return df
 
 @st.cache_data(ttl=600)
-def fetch_weather(points):
-    lats = ",".join(str(p["lat"]) for p in points)
-    lons = ",".join(str(p["lon"]) for p in points)
+def load_country_centroids(geojson):
+    feats = geojson.get("features", [])
+    rows = []
+    for f in feats:
+        iso3 = f["id"]
+        coords = f["geometry"]["coordinates"]
+        # centroid (approx) from polygon/multipolygon
+        pts = []
+        if f["geometry"]["type"] == "Polygon":
+            for ring in coords:
+                pts += ring
+        elif f["geometry"]["type"] == "MultiPolygon":
+            for poly in coords:
+                for ring in poly:
+                    pts += ring
+        if pts:
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            lon = sum(xs) / len(xs)
+            lat = sum(ys) / len(ys)
+            rows.append({"iso3": iso3, "lat": lat, "lon": lon})
+    return pd.DataFrame(rows)
 
+@st.cache_data(ttl=600)
+def fetch_weather_for_points(points_df):
+    if points_df.empty:
+        return pd.DataFrame(columns=["iso3", "temperature"])
+    lats = ",".join(points_df["lat"].round(4).astype(str))
+    lons = ",".join(points_df["lon"].round(4).astype(str))
     params = {
         "latitude": lats,
         "longitude": lons,
         "current_weather": True,
-        "hourly": "temperature_2m",
-        "timezone": "auto",
+        "timezone": "auto"
     }
-
     try:
-        r = requests.get(OPEN_METEO_URL, params=params, timeout=10)
+        r = requests.get(OPEN_METEO, params=params, timeout=20)
         r.raise_for_status()
-        data = r.json()
-
-        result = []
-        cw = data.get("current_weather", [])
-        hourly = data.get("hourly", {})
-
-        for i, p in enumerate(points):
-            temp = cw[i]["temperature"] if isinstance(cw, list) and i < len(cw) else None
-            result.append({
-                "name": p["name"],
-                "lat": p["lat"],
-                "lon": p["lon"],
-                "temperature": temp,
-                "trend": hourly.get("temperature_2m", [])[:24]
-            })
-        return result
-
-    except:
-        return [{"name": p["name"], "lat": p["lat"], "lon": p["lon"], "temperature": None, "trend": []} for p in points]
+        js = r.json()
+        cw = js.get("current_weather", [])
+        temps = []
+        for i in range(len(points_df)):
+            t = None
+            if isinstance(cw, list) and i < len(cw):
+                t = cw[i].get("temperature")
+            temps.append(t)
+        out = points_df[["iso3"]].copy()
+        out["value"] = temps
+        return out.dropna()
+    except Exception:
+        return pd.DataFrame(columns=["iso3", "value"])
 
 # =========================
-# LOAD
+# UI
 # =========================
-uploaded = st.file_uploader("Upload CSV", type=["csv"])
+st.title("🌍 Global Statistics Map (Real Data, Single File)")
+metric = st.sidebar.selectbox("Metric", METRICS, index=0)
 
-if uploaded:
-    df = validate_df(pd.read_csv(uploaded))
+# =========================
+# LOAD BASE DATA
+# =========================
+geojson = load_world_geojson()
+
+# base df with iso3 codes from geojson
+base = pd.DataFrame([{"iso3": f["id"]} for f in geojson["features"]])
+
+# load selected metric
+if metric in INDICATORS:
+    df_val = load_worldbank_indicator(INDICATORS[metric])
+elif metric == "CO2 (Mt)":
+    df_val = load_owid_co2()
+elif metric == "Temperature (°C)":
+    centroids = load_country_centroids(geojson)
+    df_val = fetch_weather_for_points(centroids)
 else:
-    df = pd.DataFrame(DEFAULT_CITIES)
+    df_val = pd.DataFrame(columns=["iso3", "value"])
 
-points = df.to_dict("records")
-weather = fetch_weather(points)
-data = pd.DataFrame(weather)
+data = base.merge(df_val, on="iso3", how="left")
 
-# =========================
-# SIDEBAR
-# =========================
-st.sidebar.title("Controls")
+# normalize values for coloring
+vals = data["value"].dropna()
+vmin = float(vals.min()) if len(vals) else 0.0
+vmax = float(vals.max()) if len(vals) else 1.0
 
-selected = st.sidebar.selectbox("Select City for Trend", data["name"])
+def color_for(v):
+    if v is None or (isinstance(v, float) and math.isnan(v)):
+        return [200, 200, 200, 80]
+    # normalize 0..1
+    t = 0 if vmax == vmin else (float(v) - vmin) / (vmax - vmin)
+    # blue -> red gradient
+    r = int(255 * t)
+    b = int(255 * (1 - t))
+    return [r, 80, b, 180]
 
-# =========================
-# HEATMAP LAYER
-# =========================
-heatmap = pdk.Layer(
-    "HeatmapLayer",
-    data=data,
-    get_position='[lon, lat]',
-    get_weight="temperature",
-    radiusPixels=60,
-)
+data["color"] = data["value"].apply(color_for)
+data["label"] = data["value"].apply(human_format)
 
 # =========================
-# SCATTER LAYER
+# MAP (Choropleth)
 # =========================
-scatter = pdk.Layer(
-    "ScatterplotLayer",
-    data=data,
-    get_position='[lon, lat]',
-    get_radius="temperature * 3000",
-    get_fill_color='[255, 50, 50, 160]',
+layer = pdk.Layer(
+    "GeoJsonLayer",
+    data=geojson,
+    get_fill_color="properties.color",
+    get_line_color=[50, 50, 50],
+    line_width_min_pixels=0.5,
     pickable=True,
+    auto_highlight=True,
 )
 
-# =========================
-# COUNTRY LAYER (pseudo polygon)
-# =========================
-country_layer = pdk.Layer(
-    "ScatterplotLayer",
-    data=COUNTRY_DATA,
-    get_position='[lon, lat]',
-    get_radius=300000,
-    get_fill_color='[50, 50, 200, 60]',
-    pickable=True,
-)
+# inject properties.color into geojson features
+for f in geojson["features"]:
+    iso3 = f["id"]
+    row = data.loc[data["iso3"] == iso3]
+    if len(row):
+        f["properties"]["color"] = row.iloc[0]["color"]
+        f["properties"]["label"] = row.iloc[0]["label"]
+    else:
+        f["properties"]["color"] = [200, 200, 200, 80]
+        f["properties"]["label"] = "—"
 
-# =========================
-# MAP
-# =========================
+view = pdk.ViewState(latitude=20, longitude=0, zoom=1.2)
+
 tooltip = {
-    "html": "<b>{name}</b><br/>Temp: {temperature}°C",
+    "html": f"<b>{{name}}</b><br/>{metric}: {{label}}",
     "style": {"backgroundColor": "black", "color": "white"},
 }
 
 st.pydeck_chart(pdk.Deck(
-    layers=[heatmap, scatter, country_layer],
-    initial_view_state=pdk.ViewState(latitude=20, longitude=0, zoom=1.2),
+    layers=[layer],
+    initial_view_state=view,
     tooltip=tooltip
 ))
 
 # =========================
-# TREND CHART
+# KPIs
 # =========================
-st.subheader("📈 24h Temperature Trend")
-
-trend_data = data[data["name"] == selected]["trend"].values[0]
-if trend_data:
-    trend_df = pd.DataFrame({"temp": trend_data})
-    st.line_chart(trend_df)
-else:
-    st.warning("No trend data")
+col1, col2, col3 = st.columns(3)
+col1.metric("Countries (with data)", int(data["value"].notna().sum()))
+col2.metric("Min", human_format(vmin))
+col3.metric("Max", human_format(vmax))
 
 # =========================
 # TABLE
 # =========================
-st.subheader("📊 Data")
-st.dataframe(data)
+st.subheader("📊 Data Table")
+st.dataframe(data.sort_values("value", ascending=False), use_container_width=True)
+
+# =========================
+# DOWNLOAD
+# =========================
+csv = data.to_csv(index=False).encode("utf-8")
+st.download_button("⬇ Download CSV", csv, "global_stats.csv", "text/csv")
