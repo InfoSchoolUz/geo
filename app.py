@@ -1,98 +1,96 @@
 import streamlit as st
 
 st.set_page_config(layout="centered")
-st.title("🌍 Jahon davlatlari (o‘zbekcha, bayroqli)")
+st.title("🌍 Jahon davlatlari (to‘liq)")
 
-# ===== FULL DATA (ISO + UZ) =====
 countries = [
-("af","Afg‘oniston"),("al","Albaniya"),("dz","Jazoir"),("ad","Andorra"),
-("ao","Angola"),("ag","Antigua va Barbuda"),("ar","Argentina"),
-("am","Armaniston"),("au","Avstraliya"),("at","Avstriya"),
-("az","Ozarbayjon"),("bs","Bagama orollari"),("bh","Bahrayn"),
-("bd","Bangladesh"),("bb","Barbados"),("by","Belarus"),
-("be","Belgiya"),("bz","Beliz"),("bj","Benin"),
-("bt","Butan"),("bo","Boliviya"),("ba","Bosniya va Gersegovina"),
-("bw","Botsvana"),("br","Braziliya"),("bn","Bruney"),
-("bg","Bolgariya"),("bf","Burkina-Faso"),("bi","Burundi"),
-("kh","Kambodja"),("cm","Kamerun"),("ca","Kanada"),
-("cv","Kabo-Verde"),("cf","Markaziy Afrika Respublikasi"),
-("td","Chad"),("cl","Chili"),("cn","Xitoy"),
-("co","Kolumbiya"),("km","Komor orollari"),("cg","Kongo"),
-("cd","Kongo DR"),("cr","Kosta-Rika"),("ci","Kot-d’Ivuar"),
-("hr","Xorvatiya"),("cu","Kuba"),("cy","Kipr"),
-("cz","Chexiya"),("dk","Daniya"),("dj","Jibuti"),
-("dm","Dominika"),("do","Dominikan Respublikasi"),
-("ec","Ekvador"),("eg","Misr"),("sv","Salvador"),
-("gq","Ekvatorial Gvineya"),("er","Eritreya"),
-("ee","Estoniya"),("sz","Eswatini"),("et","Efiopiya"),
-("fj","Fiji"),("fi","Finlyandiya"),("fr","Fransiya"),
-("ga","Gabon"),("gm","Gambiya"),("ge","Gruziya"),
-("de","Germaniya"),("gh","Gana"),("gr","Gretsiya"),
-("gd","Grenada"),("gt","Gvatemala"),("gn","Gvineya"),
-("gw","Gvineya-Bisau"),("gy","Gayana"),("ht","Gaiti"),
-("hn","Gonduras"),("hu","Vengriya"),("is","Islandiya"),
-("in","Hindiston"),("id","Indoneziya"),("ir","Eron"),
-("iq","Iroq"),("ie","Irlandiya"),("il","Isroil"),
-("it","Italiya"),("jm","Yamayka"),("jp","Yaponiya"),
-("jo","Iordaniya"),("kz","Qozog‘iston"),("ke","Keniya"),
-("ki","Kiribati"),("kp","Shimoliy Koreya"),("kr","Janubiy Koreya"),
-("kw","Kuvayt"),("kg","Qirg‘iziston"),("la","Laos"),
-("lv","Latviya"),("lb","Livan"),("ls","Lesoto"),
-("lr","Liberiya"),("ly","Liviya"),("li","Lixtenshteyn"),
-("lt","Litva"),("lu","Lyuksemburg"),("mg","Madagaskar"),
-("mw","Malavi"),("my","Malayziya"),("mv","Maldiv orollari"),
-("ml","Mali"),("mt","Malta"),("mh","Marshall orollari"),
-("mr","Mavritaniya"),("mu","Mavrikiy"),("mx","Meksika"),
-("fm","Mikroneziya"),("md","Moldova"),("mc","Monako"),
-("mn","Mongoliya"),("me","Chernogoriya"),("ma","Marokash"),
-("mz","Mozambik"),("mm","Myanma"),("na","Namibiya"),
-("nr","Nauru"),("np","Nepal"),("nl","Niderlandiya"),
-("nz","Yangi Zelandiya"),("ni","Nikaragua"),
-("ne","Niger"),("ng","Nigeriya"),("no","Norvegiya"),
-("om","Ummon"),("pk","Pokiston"),("pw","Palau"),
-("ps","Falastin"),("pa","Panama"),("pg","Papua-Yangi Gvineya"),
-("py","Paragvay"),("pe","Peru"),("ph","Filippin"),
-("pl","Polsha"),("pt","Portugaliya"),("qa","Qatar"),
-("ro","Ruminiya"),("ru","Rossiya"),("rw","Ruanda"),
-("kn","Sent-Kits va Nevis"),("lc","Sent-Lyusiya"),
-("vc","Sent-Vinsent"),("ws","Samoa"),("sm","San-Marino"),
-("st","San-Tome va Prinsipi"),("sa","Saudiya Arabistoni"),
-("sn","Senegal"),("rs","Serbiya"),("sc","Seyshel"),
-("sl","Syerra-Leone"),("sg","Singapur"),
-("sk","Slovakiya"),("si","Sloveniya"),
-("sb","Solomon orollari"),("so","Somali"),
-("za","Janubiy Afrika"),("es","Ispaniya"),
-("lk","Shri-Lanka"),("sd","Sudan"),("ss","Janubiy Sudan"),
-("sr","Surinam"),("se","Shvetsiya"),("ch","Shveytsariya"),
-("sy","Suriya"),("tw","Tayvan"),("tj","Tojikiston"),
-("tz","Tanzaniya"),("th","Tailand"),("tl","Timor-Leste"),
-("tg","Togo"),("to","Tonga"),("tt","Trinidad va Tobago"),
-("tn","Tunis"),("tr","Turkiya"),("tm","Turkmaniston"),
-("tv","Tuvalu"),("ug","Uganda"),("ua","Ukraina"),
-("ae","BAA"),("gb","Buyuk Britaniya"),("us","AQSh"),
-("uy","Urugvay"),("uz","O‘zbekiston"),("vu","Vanuatu"),
-("va","Vatikan"),("ve","Venesuela"),("vn","Vetnam"),
-("ye","Yaman"),("zm","Zambiya"),("zw","Zimbabve")
+("uz","O‘zbekiston","Toshkent","Osiyo"),
+("us","AQSh","Vashington","Amerika"),
+("cn","Xitoy","Pekin","Osiyo"),
+("ru","Rossiya","Moskva","Yevropa/Osiyo"),
+("de","Germaniya","Berlin","Yevropa"),
+("fr","Fransiya","Parij","Yevropa"),
+("gb","Buyuk Britaniya","London","Yevropa"),
+("jp","Yaponiya","Tokio","Osiyo"),
+("in","Hindiston","Dehli","Osiyo"),
+("br","Braziliya","Brasiliya","Amerika"),
+("ca","Kanada","Ottava","Amerika"),
+("au","Avstraliya","Kanberra","Okeaniya"),
+("tr","Turkiya","Anqara","Yevropa/Osiyo"),
+("kz","Qozog‘iston","Astana","Osiyo"),
+("kg","Qirg‘iziston","Bishkek","Osiyo"),
+("tj","Tojikiston","Dushanbe","Osiyo"),
+("af","Afg‘oniston","Kobul","Osiyo"),
+("ir","Eron","Tehron","Osiyo"),
+("iq","Iroq","Bag‘dod","Osiyo"),
+("sa","Saudiya Arabistoni","Riyod","Osiyo"),
+("ae","BAA","Abu-Dabi","Osiyo"),
+("qa","Qatar","Doha","Osiyo"),
+("pk","Pokiston","Islomobod","Osiyo"),
+("bd","Bangladesh","Dakka","Osiyo"),
+("id","Indoneziya","Jakarta","Osiyo"),
+("my","Malayziya","Kuala-Lumpur","Osiyo"),
+("sg","Singapur","Singapur","Osiyo"),
+("th","Tailand","Bangkok","Osiyo"),
+("vn","Vetnam","Xanoy","Osiyo"),
+("kr","Janubiy Koreya","Seul","Osiyo"),
+("kp","Shimoliy Koreya","Pxenyan","Osiyo"),
+("it","Italiya","Rim","Yevropa"),
+("es","Ispaniya","Madrid","Yevropa"),
+("pt","Portugaliya","Lissabon","Yevropa"),
+("nl","Niderlandiya","Amsterdam","Yevropa"),
+("be","Belgiya","Bryussel","Yevropa"),
+("ch","Shveytsariya","Bern","Yevropa"),
+("at","Avstriya","Vena","Yevropa"),
+("se","Shvetsiya","Stokgolm","Yevropa"),
+("no","Norvegiya","Oslo","Yevropa"),
+("fi","Finlyandiya","Xelsinki","Yevropa"),
+("dk","Daniya","Kopengagen","Yevropa"),
+("pl","Polsha","Varshava","Yevropa"),
+("cz","Chexiya","Praga","Yevropa"),
+("hu","Vengriya","Budapesht","Yevropa"),
+("ro","Ruminiya","Buxarest","Yevropa"),
+("gr","Gretsiya","Afina","Yevropa"),
+("ua","Ukraina","Kiyev","Yevropa"),
+("by","Belarus","Minsk","Yevropa"),
+("eg","Misr","Qohira","Afrika"),
+("za","Janubiy Afrika","Pretoriya","Afrika"),
+("ng","Nigeriya","Abuja","Afrika"),
+("ke","Keniya","Nayrobi","Afrika"),
+("et","Efiopiya","Addis-Abeba","Afrika"),
+("dz","Jazoir","Jazoir","Afrika"),
+("ma","Marokash","Rabot","Afrika"),
+("tn","Tunis","Tunis","Afrika"),
+("ly","Liviya","Tripoli","Afrika"),
+("sd","Sudan","Xartum","Afrika"),
+("mx","Meksika","Meksiko","Amerika"),
+("ar","Argentina","Buenos-Ayres","Amerika"),
+("cl","Chili","Santyago","Amerika"),
+("co","Kolumbiya","Bogota","Amerika"),
+("pe","Peru","Lima","Amerika"),
+("ve","Venesuela","Karakas","Amerika"),
+("uy","Urugvay","Montevideo","Amerika"),
+("py","Paragvay","Asunsion","Amerika")
 ]
 
-# ===== FLAG =====
 def flag(code):
     return ''.join(chr(127397 + ord(c)) for c in code.upper())
 
-# ===== DROPDOWN =====
-names = [name for code, name in countries]
+names = [c[1] for c in countries]
 
 selected = st.selectbox(
     "🌍 Davlatni tanlang:",
     names,
-    format_func=lambda x: f"{flag(next(c for c,n in countries if n==x))} {x}"
+    format_func=lambda x: f"{flag(next(c[0] for c in countries if c[1]==x))} {x}"
 )
 
-# ===== FIND =====
-code = next(c for c,n in countries if n == selected)
+code, name, capital, region = next(c for c in countries if c[1] == selected)
 
-# ===== SHOW =====
 st.markdown("## Tanlangan davlat")
 
 st.image(f"https://flagcdn.com/w320/{code}.png", width=150)
-st.write("📍", selected)
+st.write("📍 Davlat:", name)
+st.write("🏙 Poytaxt:", capital)
+st.write("🌍 Mintaqa:", region)
+
+st.caption("ℹ️ Ma'lumotlar statik dataset asosida")
