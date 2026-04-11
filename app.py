@@ -1,109 +1,115 @@
-
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
 
-st.set_page_config(layout="wide", page_title="🌍 Global Platform", page_icon="🌍")
+# ================= CONFIG =================
+st.set_page_config(layout="wide", page_title="🌍 Global Davlatlar Platformasi")
 
-# ===== LOAD DATA =====
+# ================= API =================
 @st.cache_data
-def load_countries():
+def davlatlarni_yuklash():
     try:
         res = requests.get("https://restcountries.com/v3.1/all", timeout=10)
         data = res.json()
 
-        countries = []
-        for c in data:
+        davlatlar = []
+        for d in data:
             try:
-                countries.append({
-                    "name": c["name"]["common"],
-                    "code": c["cca2"].lower(),
-                    "capital": c.get("capital", ["N/A"])[0],
-                    "region": c.get("region", "Other"),
-                    "lat": c["latlng"][0],
-                    "lon": c["latlng"][1],
-                    "color": "#00f5ff",
-
-                    "population": f"{round(c.get('population',0)/1e6,1)} mln",
-                    "area": f"{round(c.get('area',0),0)} km²",
-                    "language": ", ".join(c.get("languages", {}).values()) if c.get("languages") else "N/A",
-                    "currency": ", ".join([v["name"] for v in c.get("currencies", {}).values()]) if c.get("currencies") else "N/A",
+                davlatlar.append({
+                    "nom": d["name"]["common"],
+                    "kod": d["cca2"].lower(),
+                    "poytaxt": d.get("capital", ["Noma'lum"])[0],
+                    "mintaqa": d.get("region", "Boshqa"),
+                    "lat": d["latlng"][0],
+                    "lon": d["latlng"][1],
+                    "aholi": f"{round(d.get('population',0)/1e6,1)} mln",
+                    "maydon": f"{round(d.get('area',0),0)} km²",
+                    "til": ", ".join(d.get("languages", {}).values()) if d.get("languages") else "Noma'lum",
+                    "valyuta": ", ".join([v["name"] for v in d.get("currencies", {}).values()]) if d.get("currencies") else "Noma'lum",
                 })
             except:
                 continue
 
-        return countries
-
+        return davlatlar
     except:
         return []
 
-countries = load_countries()
+davlatlar = davlatlarni_yuklash()
 
-# ===== SIDEBAR =====
+# ================= SIDEBAR =================
 with st.sidebar:
-    st.markdown("### 🌍 Filter")
-    regions = sorted(set(c["region"] for c in countries))
-    selected_region = st.selectbox("Region", ["All"] + regions)
+    st.markdown("## 🌍 Filtr")
 
-    compare_mode = st.checkbox("⚖️ Compare")
+    mintaqalar = sorted(set(d["mintaqa"] for d in davlatlar))
+    tanlangan_mintaqa = st.selectbox("Mintaqa tanlang", ["Barchasi"] + mintaqalar)
 
-    if compare_mode:
-        c1 = st.selectbox("Country 1", [c["name"] for c in countries])
-        c2 = st.selectbox("Country 2", [c["name"] for c in countries], index=1)
+    st.markdown("---")
+    taqqoslash = st.checkbox("⚖️ 2 ta davlatni solishtirish")
 
-# ===== TITLE =====
-st.title("🌍 Global Intelligence Map")
+    if taqqoslash:
+        d1 = st.selectbox("1-davlat", [d["nom"] for d in davlatlar])
+        d2 = st.selectbox("2-davlat", [d["nom"] for d in davlatlar], index=1)
 
-# ===== MAP =====
-filtered = [c for c in countries if selected_region == "All" or c["region"] == selected_region]
+    st.markdown("---")
+    st.metric("Jami davlatlar", len(davlatlar))
 
-m = folium.Map(location=[20,0], zoom_start=2, tiles="CartoDB dark_matter")
+# ================= TITLE =================
+st.title("🌍 Global Davlatlar Platformasi")
+st.caption("Interaktiv dunyo xaritasi")
 
-for c in filtered:
+# ================= MAP =================
+filtrlangan = [d for d in davlatlar if tanlangan_mintaqa == "Barchasi" or d["mintaqa"] == tanlangan_mintaqa]
+
+xarita = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
+
+for d in filtrlangan:
     folium.CircleMarker(
-        [c["lat"], c["lon"]],
+        [d["lat"], d["lon"]],
         radius=6,
-        color=c["color"],
+        color="#00e5ff",
         fill=True
-    ).add_to(m)
+    ).add_to(xarita)
 
-map_data = st_folium(m, width="100%", height=500, returned_objects=["last_object_clicked"])
+map_data = st_folium(xarita, width="100%", height=500, returned_objects=["last_object_clicked"])
 
-# ===== COMPARE =====
-if compare_mode:
+# ================= TAQQOSLASH =================
+if taqqoslash:
     col1, col2 = st.columns(2)
 
-    def render(c):
-        st.image(f"https://flagcdn.com/w160/{c['code']}.png")
-        st.subheader(c["name"])
-        st.write("Capital:", c["capital"])
-        st.write("Population:", c["population"])
-        st.write("Area:", c["area"])
+    def chiqar(d):
+        st.image(f"https://flagcdn.com/w160/{d['kod']}.png")
+        st.subheader(d["nom"])
+        st.write("🏙 Poytaxt:", d["poytaxt"])
+        st.write("👥 Aholi:", d["aholi"])
+        st.write("📐 Maydon:", d["maydon"])
+        st.write("🗣 Til:", d["til"])
+        st.write("💰 Valyuta:", d["valyuta"])
 
     with col1:
-        render(next(c for c in countries if c["name"] == c1))
+        chiqar(next(d for d in davlatlar if d["nom"] == d1))
 
     with col2:
-        render(next(c for c in countries if c["name"] == c2))
+        chiqar(next(d for d in davlatlar if d["nom"] == d2))
 
     st.stop()
 
-# ===== DETAIL =====
+# ================= DETAIL =================
 if map_data and map_data.get("last_object_clicked"):
     lat = map_data["last_object_clicked"]["lat"]
     lon = map_data["last_object_clicked"]["lng"]
 
-    c = min(countries, key=lambda x: (x["lat"]-lat)**2 + (x["lon"]-lon)**2)
+    d = min(davlatlar, key=lambda x: (x["lat"]-lat)**2 + (x["lon"]-lon)**2)
 
-    st.image(f"https://flagcdn.com/w320/{c['code']}.png")
-    st.header(c["name"])
-    st.write("Capital:", c["capital"])
-    st.write("Region:", c["region"])
-    st.write("Population:", c["population"])
-    st.write("Area:", c["area"])
-    st.write("Language:", c["language"])
-    st.write("Currency:", c["currency"])
+    st.image(f"https://flagcdn.com/w320/{d['kod']}.png")
+    st.header(d["nom"])
+
+    st.write("🏙 Poytaxt:", d["poytaxt"])
+    st.write("🌍 Mintaqa:", d["mintaqa"])
+    st.write("👥 Aholi:", d["aholi"])
+    st.write("📐 Maydon:", d["maydon"])
+    st.write("🗣 Til:", d["til"])
+    st.write("💰 Valyuta:", d["valyuta"])
 
 else:
-    st.info("Click a country on the map")
+    st.info("👉 Xarita ustida davlatni bosing")
