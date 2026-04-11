@@ -2,114 +2,510 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
+import plotly.graph_objects as go
+import plotly.express as px
 
-# ================= CONFIG =================
-st.set_page_config(layout="wide", page_title="🌍 Global Davlatlar Platformasi")
+st.set_page_config(
+    layout="wide",
+    page_title="🌍 Global Intelligence Map",
+    page_icon="🌍",
+    initial_sidebar_state="expanded"
+)
 
-# ================= API =================
-@st.cache_data
-def davlatlarni_yuklash():
+# ===== DARK CYBER THEME =====
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap');
+
+html, body, [class*="css"] {
+    background-color: #050a0e !important;
+    color: #00f5ff !important;
+    font-family: 'Share Tech Mono', monospace !important;
+}
+
+.stApp { background: #050a0e; }
+
+h1, h2, h3 {
+    font-family: 'Orbitron', monospace !important;
+    color: #00f5ff !important;
+    text-shadow: 0 0 20px #00f5ff88;
+}
+
+.metric-box {
+    background: linear-gradient(135deg, #0a1628 0%, #0d2137 100%);
+    border: 1px solid #00f5ff33;
+    border-left: 3px solid #00f5ff;
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 6px 0;
+    box-shadow: 0 0 15px #00f5ff11;
+}
+.metric-label {
+    font-size: 10px;
+    color: #00f5ff88;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+}
+.metric-value {
+    font-size: 18px;
+    color: #00f5ff;
+    font-weight: bold;
+    text-shadow: 0 0 10px #00f5ff66;
+}
+
+.compare-header {
+    background: linear-gradient(90deg, #0a1628, #0d2137);
+    border: 1px solid #00f5ff22;
+    border-top: 2px solid #00f5ff;
+    padding: 16px;
+    border-radius: 4px;
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.flag-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    border: 1px solid #00f5ff22;
+    border-radius: 4px;
+    background: #0a1628;
+    margin-bottom: 10px;
+}
+
+.stSelectbox > div > div {
+    background: #0a1628 !important;
+    border: 1px solid #00f5ff44 !important;
+    color: #00f5ff !important;
+}
+
+.stCheckbox label { color: #00f5ff !important; }
+
+section[data-testid="stSidebar"] {
+    background: #030709 !important;
+    border-right: 1px solid #00f5ff22 !important;
+}
+
+.stButton button {
+    background: transparent !important;
+    border: 1px solid #00f5ff !important;
+    color: #00f5ff !important;
+    font-family: 'Share Tech Mono', monospace !important;
+    letter-spacing: 1px;
+    transition: all 0.3s;
+}
+.stButton button:hover {
+    background: #00f5ff22 !important;
+    box-shadow: 0 0 20px #00f5ff44 !important;
+}
+
+.win-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 2px;
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+.win { background: #00f5ff22; border: 1px solid #00f5ff; color: #00f5ff; }
+.lose { background: #ff006622; border: 1px solid #ff0066; color: #ff0066; }
+.tie { background: #ffaa0022; border: 1px solid #ffaa00; color: #ffaa00; }
+
+div[data-testid="stInfo"] {
+    background: #0a1628 !important;
+    border: 1px solid #00f5ff33 !important;
+    color: #00f5ff88 !important;
+    border-radius: 4px !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ===== REGION COLORS =====
+REGION_COLORS = {
+    "Asia": "#ff6b35",
+    "Europe": "#00f5ff",
+    "Africa": "#ffd700",
+    "Americas": "#00ff88",
+    "Oceania": "#ff006e",
+    "Antarctic": "#aaaaaa",
+    "Polar": "#aaaaaa",
+}
+
+# ===== LOAD DATA =====
+@st.cache_data(ttl=3600)
+def load_countries():
     try:
-        res = requests.get("https://restcountries.com/v3.1/all", timeout=10)
+        res = requests.get("https://restcountries.com/v3.1/all", timeout=15)
+        res.raise_for_status()
         data = res.json()
-
-        davlatlar = []
-        for d in data:
+        countries = []
+        for c in data:
             try:
-                davlatlar.append({
-                    "nom": d["name"]["common"],
-                    "kod": d["cca2"].lower(),
-                    "poytaxt": d.get("capital", ["Noma'lum"])[0],
-                    "mintaqa": d.get("region", "Boshqa"),
-                    "lat": d["latlng"][0],
-                    "lon": d["latlng"][1],
-                    "aholi": f"{round(d.get('population',0)/1e6,1)} mln",
-                    "maydon": f"{round(d.get('area',0),0)} km²",
-                    "til": ", ".join(d.get("languages", {}).values()) if d.get("languages") else "Noma'lum",
-                    "valyuta": ", ".join([v["name"] for v in d.get("currencies", {}).values()]) if d.get("currencies") else "Noma'lum",
-                })
-            except:
-                continue
+                latlng = c.get("latlng", [0, 0])
+                if len(latlng) < 2:
+                    continue
+                region = c.get("region", "Other")
+                pop = c.get("population", 0)
+                area = c.get("area", 0)
 
-        return davlatlar
-    except:
+                # population density
+                density = round(pop / area, 1) if area and area > 0 else 0
+
+                # gini
+                gini_dict = c.get("gini", {})
+                gini_val = list(gini_dict.values())[-1] if gini_dict else None
+
+                # timezones
+                timezones = c.get("timezones", [])
+
+                # borders
+                borders = c.get("borders", [])
+
+                # calling codes
+                idd = c.get("idd", {})
+                root = idd.get("root", "")
+                suffixes = idd.get("suffixes", [""])
+                calling_code = root + (suffixes[0] if suffixes else "")
+
+                countries.append({
+                    "name": c["name"]["common"],
+                    "official": c["name"].get("official", c["name"]["common"]),
+                    "code": c["cca2"].lower(),
+                    "cca3": c.get("cca3", ""),
+                    "capital": c.get("capital", ["N/A"])[0],
+                    "region": region,
+                    "subregion": c.get("subregion", "N/A"),
+                    "lat": latlng[0],
+                    "lon": latlng[1],
+                    "color": REGION_COLORS.get(region, "#00f5ff"),
+                    "population": pop,
+                    "population_fmt": f"{round(pop/1e6, 2)} mln" if pop >= 1e6 else f"{pop:,}",
+                    "area": area,
+                    "area_fmt": f"{area:,.0f} km²" if area else "N/A",
+                    "density": density,
+                    "density_fmt": f"{density} /km²" if density else "N/A",
+                    "language": ", ".join(c.get("languages", {}).values()) if c.get("languages") else "N/A",
+                    "currency": ", ".join([f"{v['name']} ({v.get('symbol','?')})" for v in c.get("currencies", {}).values()]) if c.get("currencies") else "N/A",
+                    "tld": ", ".join(c.get("tld", [])) if c.get("tld") else "N/A",
+                    "timezones": ", ".join(timezones[:3]) + ("..." if len(timezones) > 3 else ""),
+                    "borders_count": len(borders),
+                    "borders": ", ".join(borders[:10]),
+                    "calling_code": calling_code or "N/A",
+                    "independent": c.get("independent", False),
+                    "un_member": c.get("unMember", False),
+                    "landlocked": c.get("landlocked", False),
+                    "gini": gini_val,
+                    "driving_side": c.get("car", {}).get("side", "N/A"),
+                    "start_of_week": c.get("startOfWeek", "N/A"),
+                    "continent": ", ".join(c.get("continents", [])),
+                })
+            except Exception as e:
+                continue
+        return sorted(countries, key=lambda x: x["name"])
+    except Exception as e:
+        st.error(f"API xatosi: {e}")
         return []
 
-davlatlar = davlatlarni_yuklash()
+countries = load_countries()
 
-# ================= SIDEBAR =================
+# ===== SIDEBAR =====
 with st.sidebar:
-    st.markdown("## 🌍 Filtr")
+    st.markdown('<h3 style="font-family:Orbitron;color:#00f5ff;font-size:14px;letter-spacing:3px;">⚡ CONTROL PANEL</h3>', unsafe_allow_html=True)
+    st.divider()
 
-    mintaqalar = sorted(set(d["mintaqa"] for d in davlatlar))
-    tanlangan_mintaqa = st.selectbox("Mintaqa tanlang", ["Barchasi"] + mintaqalar)
+    regions = sorted(set(c["region"] for c in countries if c["region"]))
+    selected_region = st.selectbox("🌐 Region filter", ["All"] + regions)
 
-    st.markdown("---")
-    taqqoslash = st.checkbox("⚖️ 2 ta davlatni solishtirish")
+    st.divider()
+    compare_mode = st.checkbox("⚖️ Compare Mode")
 
-    if taqqoslash:
-        d1 = st.selectbox("1-davlat", [d["nom"] for d in davlatlar])
-        d2 = st.selectbox("2-davlat", [d["nom"] for d in davlatlar], index=1)
+    if compare_mode:
+        country_names = [c["name"] for c in countries]
+        c1_name = st.selectbox("🔵 Country 1", country_names, index=0)
+        c2_name = st.selectbox("🔴 Country 2", country_names, index=1)
 
-    st.markdown("---")
-    st.metric("Jami davlatlar", len(davlatlar))
+    st.divider()
+    map_style = st.selectbox("🗺️ Map Style", ["Dark Matter", "Positron", "OpenStreetMap"])
 
-# ================= TITLE =================
-st.title("🌍 Global Davlatlar Platformasi")
-st.caption("Interaktiv dunyo xaritasi")
+    st.divider()
+    st.markdown(f'<div style="font-size:11px;color:#00f5ff44;letter-spacing:1px;">LOADED: {len(countries)} COUNTRIES</div>', unsafe_allow_html=True)
 
-# ================= MAP =================
-filtrlangan = [d for d in davlatlar if tanlangan_mintaqa == "Barchasi" or d["mintaqa"] == tanlangan_mintaqa]
+# ===== TITLE =====
+st.markdown('<h1 style="font-size:28px;letter-spacing:4px;margin-bottom:4px;">🌍 GLOBAL INTELLIGENCE MAP</h1>', unsafe_allow_html=True)
+st.markdown('<p style="color:#00f5ff66;font-size:12px;letter-spacing:2px;margin-top:0;">REAL-TIME COUNTRY DATA PLATFORM — NO API KEY REQUIRED</p>', unsafe_allow_html=True)
 
-xarita = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB dark_matter")
+# ===== TOP STATS =====
+col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+filtered = [c for c in countries if selected_region == "All" or c["region"] == selected_region]
+total_pop = sum(c["population"] for c in filtered)
+total_area = sum(c["area"] for c in filtered if c["area"])
 
-for d in filtrlangan:
+with col_s1:
+    st.markdown(f'<div class="metric-box"><div class="metric-label">Countries</div><div class="metric-value">{len(filtered)}</div></div>', unsafe_allow_html=True)
+with col_s2:
+    st.markdown(f'<div class="metric-box"><div class="metric-label">Total Population</div><div class="metric-value">{round(total_pop/1e9,2)} B</div></div>', unsafe_allow_html=True)
+with col_s3:
+    st.markdown(f'<div class="metric-box"><div class="metric-label">Total Area</div><div class="metric-value">{round(total_area/1e6,1)} M km²</div></div>', unsafe_allow_html=True)
+with col_s4:
+    landlocked = sum(1 for c in filtered if c["landlocked"])
+    st.markdown(f'<div class="metric-box"><div class="metric-label">Landlocked</div><div class="metric-value">{landlocked}</div></div>', unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ===== MAP =====
+tile_map = {
+    "Dark Matter": "CartoDB dark_matter",
+    "Positron": "CartoDB positron",
+    "OpenStreetMap": "OpenStreetMap"
+}
+
+m = folium.Map(
+    location=[20, 10],
+    zoom_start=2,
+    tiles=tile_map[map_style]
+)
+
+for c in filtered:
     folium.CircleMarker(
-        [d["lat"], d["lon"]],
-        radius=6,
-        color="#00e5ff",
-        fill=True
-    ).add_to(xarita)
+        [c["lat"], c["lon"]],
+        radius=5,
+        color=c["color"],
+        fill=True,
+        fill_color=c["color"],
+        fill_opacity=0.8,
+        weight=1.5,
+        tooltip=folium.Tooltip(
+            f"<b>{c['name']}</b><br>🏛 {c['capital']}<br>👥 {c['population_fmt']}<br>🌐 {c['region']}",
+            style="background:#0a1628;color:#00f5ff;border:1px solid #00f5ff44;font-family:monospace;font-size:12px;"
+        )
+    ).add_to(m)
 
-map_data = st_folium(xarita, width="100%", height=500, returned_objects=["last_object_clicked"])
+map_data = st_folium(m, width="100%", height=480, returned_objects=["last_object_clicked"])
 
-# ================= TAQQOSLASH =================
-if taqqoslash:
-    col1, col2 = st.columns(2)
+# ===== COMPARE MODE =====
+if compare_mode:
+    st.markdown("---")
+    st.markdown('<h2 style="font-size:18px;letter-spacing:3px;">⚖️ COUNTRY COMPARISON</h2>', unsafe_allow_html=True)
 
-    def chiqar(d):
-        st.image(f"https://flagcdn.com/w160/{d['kod']}.png")
-        st.subheader(d["nom"])
-        st.write("🏙 Poytaxt:", d["poytaxt"])
-        st.write("👥 Aholi:", d["aholi"])
-        st.write("📐 Maydon:", d["maydon"])
-        st.write("🗣 Til:", d["til"])
-        st.write("💰 Valyuta:", d["valyuta"])
+    ca = next((c for c in countries if c["name"] == c1_name), None)
+    cb = next((c for c in countries if c["name"] == c2_name), None)
 
-    with col1:
-        chiqar(next(d for d in davlatlar if d["nom"] == d1))
+    if ca and cb:
+        col1, col_mid, col2 = st.columns([5, 1, 5])
 
-    with col2:
-        chiqar(next(d for d in davlatlar if d["nom"] == d2))
+        def render_country(col, c, color):
+            with col:
+                # Flag
+                st.image(f"https://flagcdn.com/w160/{c['code']}.png", use_container_width=False, width=160)
+                st.markdown(f'<h3 style="color:{color};font-size:16px;letter-spacing:2px;">{c["name"].upper()}</h3>', unsafe_allow_html=True)
+                st.markdown(f'<div style="color:#ffffff66;font-size:11px;margin-bottom:12px;">{c["official"]}</div>', unsafe_allow_html=True)
+
+                fields = [
+                    ("🏛 Capital", c["capital"]),
+                    ("🌐 Region", f'{c["region"]} / {c["subregion"]}'),
+                    ("👥 Population", c["population_fmt"]),
+                    ("📐 Area", c["area_fmt"]),
+                    ("👨‍👩‍👧 Density", c["density_fmt"]),
+                    ("💬 Language", c["language"][:40] + "..." if len(c["language"]) > 40 else c["language"]),
+                    ("💰 Currency", c["currency"][:40] + "..." if len(c["currency"]) > 40 else c["currency"]),
+                    ("📞 Calling", c["calling_code"]),
+                    ("🌐 TLD", c["tld"]),
+                    ("⏰ Timezone", c["timezones"]),
+                    ("🚗 Drive side", c["driving_side"]),
+                    ("🏳️ Landlocked", "Yes" if c["landlocked"] else "No"),
+                    ("🇺🇳 UN Member", "Yes" if c["un_member"] else "No"),
+                    ("🤝 Borders", f'{c["borders_count"]} countries'),
+                    ("📊 Gini Index", str(c["gini"]) if c["gini"] else "N/A"),
+                ]
+                for label, value in fields:
+                    st.markdown(f'<div class="metric-box"><div class="metric-label">{label}</div><div class="metric-value" style="font-size:14px;">{value}</div></div>', unsafe_allow_html=True)
+
+        render_country(col1, ca, "#00f5ff")
+        with col_mid:
+            st.markdown('<div style="text-align:center;padding-top:120px;font-size:28px;color:#ffffff33;">VS</div>', unsafe_allow_html=True)
+        render_country(col2, cb, "#ff006e")
+
+        # ===== COMPARISON CHART =====
+        st.markdown("---")
+        st.markdown('<h3 style="font-size:15px;letter-spacing:2px;">📊 STATISTICAL COMPARISON</h3>', unsafe_allow_html=True)
+
+        # Winner badges
+        def compare_metric(label, val_a, val_b, unit="", higher_is_better=True):
+            if val_a == 0 and val_b == 0:
+                return
+            if val_a > val_b:
+                w1, w2 = ("win", "lose") if higher_is_better else ("lose", "win")
+            elif val_b > val_a:
+                w1, w2 = ("lose", "win") if higher_is_better else ("win", "lose")
+            else:
+                w1 = w2 = "tie"
+            label_map = {"win": "▲ WINNER", "lose": "▼ LOWER", "tie": "= EQUAL"}
+            col_a, col_c, col_b = st.columns([4, 3, 4])
+            with col_a:
+                st.markdown(f'<div style="text-align:right;"><span class="win-badge {w1}">{label_map[w1]}</span><br><span style="font-size:18px;color:#00f5ff;">{val_a:,.1f}{unit}</span></div>', unsafe_allow_html=True)
+            with col_c:
+                st.markdown(f'<div style="text-align:center;font-size:11px;color:#ffffff66;padding-top:12px;letter-spacing:1px;">{label}</div>', unsafe_allow_html=True)
+            with col_b:
+                st.markdown(f'<div style="text-align:left;"><span class="win-badge {w2}">{label_map[w2]}</span><br><span style="font-size:18px;color:#ff006e;">{val_b:,.1f}{unit}</span></div>', unsafe_allow_html=True)
+
+        compare_metric("POPULATION", ca["population"]/1e6, cb["population"]/1e6, " M")
+        compare_metric("AREA", ca["area"], cb["area"], " km²")
+        compare_metric("DENSITY", ca["density"], cb["density"], " /km²")
+        compare_metric("BORDER COUNTRIES", ca["borders_count"], cb["borders_count"])
+        if ca["gini"] and cb["gini"]:
+            compare_metric("GINI INDEX (equality)", ca["gini"], cb["gini"], "", higher_is_better=False)
+
+        # Bar chart
+        metrics = ["Population (M)", "Area (k km²)", "Density (/km²)", "Borders"]
+        vals_a = [ca["population"]/1e6, ca["area"]/1000, ca["density"], ca["borders_count"]]
+        vals_b = [cb["population"]/1e6, cb["area"]/1000, cb["density"], cb["borders_count"]]
+
+        fig = go.Figure(data=[
+            go.Bar(name=ca["name"], x=metrics, y=vals_a, marker_color="#00f5ff", opacity=0.85),
+            go.Bar(name=cb["name"], x=metrics, y=vals_b, marker_color="#ff006e", opacity=0.85),
+        ])
+        fig.update_layout(
+            barmode="group",
+            plot_bgcolor="#050a0e",
+            paper_bgcolor="#050a0e",
+            font=dict(color="#00f5ff", family="Share Tech Mono"),
+            legend=dict(bgcolor="#0a1628", bordercolor="#00f5ff33"),
+            xaxis=dict(gridcolor="#00f5ff11"),
+            yaxis=dict(gridcolor="#00f5ff11"),
+            margin=dict(t=20, b=20),
+            height=320,
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
     st.stop()
 
-# ================= DETAIL =================
+# ===== DETAIL VIEW =====
 if map_data and map_data.get("last_object_clicked"):
     lat = map_data["last_object_clicked"]["lat"]
     lon = map_data["last_object_clicked"]["lng"]
+    c = min(filtered, key=lambda x: (x["lat"]-lat)**2 + (x["lon"]-lon)**2)
 
-    d = min(davlatlar, key=lambda x: (x["lat"]-lat)**2 + (x["lon"]-lon)**2)
+    st.markdown("---")
+    col_flag, col_info = st.columns([2, 5])
 
-    st.image(f"https://flagcdn.com/w320/{d['kod']}.png")
-    st.header(d["nom"])
+    with col_flag:
+        st.image(f"https://flagcdn.com/w320/{c['code']}.png", use_container_width=True)
+        if c["un_member"]:
+            st.markdown('<div style="text-align:center;color:#00f5ff88;font-size:11px;letter-spacing:1px;margin-top:8px;">🇺🇳 UN MEMBER</div>', unsafe_allow_html=True)
+        if c["independent"]:
+            st.markdown('<div style="text-align:center;color:#00ff8888;font-size:11px;letter-spacing:1px;">✅ INDEPENDENT</div>', unsafe_allow_html=True)
+        if c["landlocked"]:
+            st.markdown('<div style="text-align:center;color:#ffaa0088;font-size:11px;letter-spacing:1px;">🔒 LANDLOCKED</div>', unsafe_allow_html=True)
 
-    st.write("🏙 Poytaxt:", d["poytaxt"])
-    st.write("🌍 Mintaqa:", d["mintaqa"])
-    st.write("👥 Aholi:", d["aholi"])
-    st.write("📐 Maydon:", d["maydon"])
-    st.write("🗣 Til:", d["til"])
-    st.write("💰 Valyuta:", d["valyuta"])
+    with col_info:
+        st.markdown(f'<h2 style="font-size:22px;letter-spacing:3px;margin-bottom:2px;">{c["name"].upper()}</h2>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#ffffff44;font-size:12px;margin-bottom:16px;">{c["official"]}</div>', unsafe_allow_html=True)
+
+        col_a, col_b, col_c = st.columns(3)
+        fields_left = [
+            ("🏛 Capital", c["capital"]),
+            ("🌐 Region", c["region"]),
+            ("🗺️ Subregion", c["subregion"]),
+            ("🌍 Continent", c["continent"]),
+            ("📞 Calling Code", c["calling_code"]),
+            ("🌐 TLD", c["tld"]),
+        ]
+        fields_mid = [
+            ("👥 Population", c["population_fmt"]),
+            ("📐 Area", c["area_fmt"]),
+            ("👨‍👩‍👧 Density", c["density_fmt"]),
+            ("🤝 Border Countries", str(c["borders_count"])),
+            ("📊 Gini Index", str(c["gini"]) if c["gini"] else "N/A"),
+            ("🚗 Driving Side", c["driving_side"]),
+        ]
+        fields_right = [
+            ("💬 Language(s)", c["language"]),
+            ("💰 Currency", c["currency"]),
+            ("⏰ Timezone(s)", c["timezones"]),
+            ("📅 Week starts", c["start_of_week"]),
+            ("🌍 Borders", c["borders"] if c["borders"] else "None"),
+        ]
+
+        with col_a:
+            for label, value in fields_left:
+                st.markdown(f'<div class="metric-box"><div class="metric-label">{label}</div><div class="metric-value" style="font-size:13px;">{value}</div></div>', unsafe_allow_html=True)
+        with col_b:
+            for label, value in fields_mid:
+                st.markdown(f'<div class="metric-box"><div class="metric-label">{label}</div><div class="metric-value" style="font-size:13px;">{value}</div></div>', unsafe_allow_html=True)
+        with col_c:
+            for label, value in fields_right:
+                st.markdown(f'<div class="metric-box"><div class="metric-label">{label}</div><div class="metric-value" style="font-size:13px;">{value}</div></div>', unsafe_allow_html=True)
+
+    # Population bar vs world
+    st.markdown("---")
+    world_pop = sum(x["population"] for x in countries)
+    pct = round(c["population"] / world_pop * 100, 3)
+    st.markdown(f'<div style="font-size:12px;letter-spacing:2px;color:#00f5ff88;margin-bottom:8px;">WORLD POPULATION SHARE: <span style="color:#00f5ff;">{pct}%</span></div>', unsafe_allow_html=True)
+    st.progress(min(pct / 20, 1.0))
 
 else:
-    st.info("👉 Xarita ustida davlatni bosing")
+    st.info("🖱️ Xaritada davlatni bosing — to'liq ma'lumot ko'rsatiladi")
+
+    # ===== REGION CHART =====
+    st.markdown("---")
+    st.markdown('<h3 style="font-size:15px;letter-spacing:2px;">📊 REGIONAL OVERVIEW</h3>', unsafe_allow_html=True)
+    region_data = {}
+    for c in filtered:
+        r = c["region"] or "Other"
+        if r not in region_data:
+            region_data[r] = {"count": 0, "population": 0}
+        region_data[r]["count"] += 1
+        region_data[r]["population"] += c["population"]
+
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        fig1 = go.Figure(go.Bar(
+            x=list(region_data.keys()),
+            y=[v["count"] for v in region_data.values()],
+            marker_color=[REGION_COLORS.get(r, "#00f5ff") for r in region_data.keys()],
+            opacity=0.85,
+        ))
+        fig1.update_layout(
+            title="Countries per Region",
+            plot_bgcolor="#050a0e", paper_bgcolor="#050a0e",
+            font=dict(color="#00f5ff", family="Share Tech Mono"),
+            xaxis=dict(gridcolor="#00f5ff11"), yaxis=dict(gridcolor="#00f5ff11"),
+            margin=dict(t=40, b=20), height=300,
+        )
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with col_c2:
+        fig2 = go.Figure(go.Pie(
+            labels=list(region_data.keys()),
+            values=[v["population"] for v in region_data.values()],
+            marker=dict(colors=[REGION_COLORS.get(r, "#00f5ff") for r in region_data.keys()]),
+            hole=0.5,
+        ))
+        fig2.update_layout(
+            title="Population Share",
+            plot_bgcolor="#050a0e", paper_bgcolor="#050a0e",
+            font=dict(color="#00f5ff", family="Share Tech Mono"),
+            margin=dict(t=40, b=20), height=300,
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    # TOP 10 populous
+    st.markdown('<h3 style="font-size:15px;letter-spacing:2px;margin-top:16px;">🏆 TOP 10 MOST POPULOUS</h3>', unsafe_allow_html=True)
+    top10 = sorted(filtered, key=lambda x: x["population"], reverse=True)[:10]
+    fig3 = go.Figure(go.Bar(
+        y=[c["name"] for c in top10],
+        x=[c["population"]/1e6 for c in top10],
+        orientation="h",
+        marker_color=[c["color"] for c in top10],
+        opacity=0.85,
+    ))
+    fig3.update_layout(
+        plot_bgcolor="#050a0e", paper_bgcolor="#050a0e",
+        font=dict(color="#00f5ff", family="Share Tech Mono"),
+        xaxis=dict(title="Population (millions)", gridcolor="#00f5ff11"),
+        yaxis=dict(gridcolor="#00f5ff11", autorange="reversed"),
+        margin=dict(t=10, b=20), height=350,
+    )
+    st.plotly_chart(fig3, use_container_width=True)
