@@ -2,8 +2,7 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
-import plotly.graph_objects as go
-import plotly.express as px
+import pandas as pd
 
 st.set_page_config(
     layout="wide",
@@ -357,27 +356,13 @@ if compare_mode:
         if ca["gini"] and cb["gini"]:
             compare_metric("GINI INDEX (equality)", ca["gini"], cb["gini"], "", higher_is_better=False)
 
-        # Bar chart
-        metrics = ["Population (M)", "Area (k km²)", "Density (/km²)", "Borders"]
-        vals_a = [ca["population"]/1e6, ca["area"]/1000, ca["density"], ca["borders_count"]]
-        vals_b = [cb["population"]/1e6, cb["area"]/1000, cb["density"], cb["borders_count"]]
-
-        fig = go.Figure(data=[
-            go.Bar(name=ca["name"], x=metrics, y=vals_a, marker_color="#00f5ff", opacity=0.85),
-            go.Bar(name=cb["name"], x=metrics, y=vals_b, marker_color="#ff006e", opacity=0.85),
-        ])
-        fig.update_layout(
-            barmode="group",
-            plot_bgcolor="#050a0e",
-            paper_bgcolor="#050a0e",
-            font=dict(color="#00f5ff", family="Share Tech Mono"),
-            legend=dict(bgcolor="#0a1628", bordercolor="#00f5ff33"),
-            xaxis=dict(gridcolor="#00f5ff11"),
-            yaxis=dict(gridcolor="#00f5ff11"),
-            margin=dict(t=20, b=20),
-            height=320,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Bar chart — native st.bar_chart
+        import pandas as pd
+        chart_df = pd.DataFrame({
+            ca["name"]: [ca["population"]/1e6, ca["area"]/1000, ca["density"], float(ca["borders_count"])],
+            cb["name"]: [cb["population"]/1e6, cb["area"]/1000, cb["density"], float(cb["borders_count"])],
+        }, index=["Population (M)", "Area (k km²)", "Density (/km²)", "Borders"])
+        st.bar_chart(chart_df, height=300)
 
     st.stop()
 
@@ -460,52 +445,42 @@ else:
         region_data[r]["population"] += c["population"]
 
     col_c1, col_c2 = st.columns(2)
+    import pandas as pd
     with col_c1:
-        fig1 = go.Figure(go.Bar(
-            x=list(region_data.keys()),
-            y=[v["count"] for v in region_data.values()],
-            marker_color=[REGION_COLORS.get(r, "#00f5ff") for r in region_data.keys()],
-            opacity=0.85,
-        ))
-        fig1.update_layout(
-            title="Countries per Region",
-            plot_bgcolor="#050a0e", paper_bgcolor="#050a0e",
-            font=dict(color="#00f5ff", family="Share Tech Mono"),
-            xaxis=dict(gridcolor="#00f5ff11"), yaxis=dict(gridcolor="#00f5ff11"),
-            margin=dict(t=40, b=20), height=300,
-        )
-        st.plotly_chart(fig1, use_container_width=True)
+        st.markdown('<div style="font-size:12px;letter-spacing:2px;color:#00f5ff88;margin-bottom:8px;">COUNTRIES PER REGION</div>', unsafe_allow_html=True)
+        df_count = pd.DataFrame({"Countries": {r: v["count"] for r, v in region_data.items()}})
+        st.bar_chart(df_count, height=250)
 
     with col_c2:
-        fig2 = go.Figure(go.Pie(
-            labels=list(region_data.keys()),
-            values=[v["population"] for v in region_data.values()],
-            marker=dict(colors=[REGION_COLORS.get(r, "#00f5ff") for r in region_data.keys()]),
-            hole=0.5,
-        ))
-        fig2.update_layout(
-            title="Population Share",
-            plot_bgcolor="#050a0e", paper_bgcolor="#050a0e",
-            font=dict(color="#00f5ff", family="Share Tech Mono"),
-            margin=dict(t=40, b=20), height=300,
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.markdown('<div style="font-size:12px;letter-spacing:2px;color:#00f5ff88;margin-bottom:8px;">POPULATION SHARE (%)</div>', unsafe_allow_html=True)
+        total_p = sum(v["population"] for v in region_data.values())
+        for r, v in sorted(region_data.items(), key=lambda x: -x[1]["population"]):
+            pct = round(v["population"] / total_p * 100, 1) if total_p else 0
+            color = REGION_COLORS.get(r, "#00f5ff")
+            st.markdown(f"""
+            <div style="margin:4px 0;">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#ffffff88;margin-bottom:2px;">
+                <span>{r}</span><span style="color:{color};">{pct}%</span>
+              </div>
+              <div style="background:#0a1628;border-radius:2px;height:8px;">
+                <div style="width:{pct}%;background:{color};height:8px;border-radius:2px;box-shadow:0 0 6px {color}88;"></div>
+              </div>
+            </div>""", unsafe_allow_html=True)
 
     # TOP 10 populous
     st.markdown('<h3 style="font-size:15px;letter-spacing:2px;margin-top:16px;">🏆 TOP 10 MOST POPULOUS</h3>', unsafe_allow_html=True)
     top10 = sorted(filtered, key=lambda x: x["population"], reverse=True)[:10]
-    fig3 = go.Figure(go.Bar(
-        y=[c["name"] for c in top10],
-        x=[c["population"]/1e6 for c in top10],
-        orientation="h",
-        marker_color=[c["color"] for c in top10],
-        opacity=0.85,
-    ))
-    fig3.update_layout(
-        plot_bgcolor="#050a0e", paper_bgcolor="#050a0e",
-        font=dict(color="#00f5ff", family="Share Tech Mono"),
-        xaxis=dict(title="Population (millions)", gridcolor="#00f5ff11"),
-        yaxis=dict(gridcolor="#00f5ff11", autorange="reversed"),
-        margin=dict(t=10, b=20), height=350,
-    )
-    st.plotly_chart(fig3, use_container_width=True)
+    max_pop = top10[0]["population"] if top10 else 1
+    for i, c in enumerate(top10):
+        pct = c["population"] / max_pop * 100
+        color = c["color"]
+        st.markdown(f"""
+        <div style="margin:5px 0;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#ffffff88;margin-bottom:2px;">
+            <span style="color:{color};">#{i+1} {c["name"]}</span>
+            <span style="color:#00f5ff88;">{c["population_fmt"]}</span>
+          </div>
+          <div style="background:#0a1628;border-radius:2px;height:10px;">
+            <div style="width:{pct:.1f}%;background:{color};height:10px;border-radius:2px;box-shadow:0 0 8px {color}66;"></div>
+          </div>
+        </div>""", unsafe_allow_html=True)
