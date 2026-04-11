@@ -136,8 +136,27 @@ REGION_COLORS = {
 @st.cache_data(ttl=3600)
 def load_countries():
     try:
-        res = requests.get("https://restcountries.com/v3.1/all", timeout=15)
-        res.raise_for_status()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+            "Accept": "application/json",
+        }
+        urls = [
+            "https://restcountries.com/v3.1/all?fields=name,cca2,cca3,capital,region,subregion,latlng,population,area,languages,currencies,tld,timezones,borders,idd,independent,unMember,landlocked,gini,car,startOfWeek,continents",
+            "https://restcountries.com/v3.1/all",
+        ]
+        res = None
+        for url in urls:
+            try:
+                r = requests.get(url, headers=headers, timeout=20)
+                if r.status_code == 200:
+                    res = r
+                    break
+            except Exception:
+                continue
+        if res is None:
+            st.error("API ga ulanib bo'lmadi. Internet yoki restcountries.com muammosi.")
+            return []
+
         data = res.json()
         countries = []
         for c in data:
