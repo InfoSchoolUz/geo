@@ -1,8 +1,0 @@
-{
-  "Uzbekistan": {"gdp": 80, "gdp_per_capita": 2200, "literacy": 99, "internet": 75, "life_expectancy": 72, "risk": "Low"},
-  "United States": {"gdp": 25000, "gdp_per_capita": 75000, "literacy": 99, "internet": 92, "life_expectancy": 77, "risk": "Low"},
-  "Japan": {"gdp": 4200, "gdp_per_capita": 34000, "literacy": 99, "internet": 94, "life_expectancy": 84, "risk": "Low"},
-  "Germany": {"gdp": 4500, "gdp_per_capita": 52000, "literacy": 99, "internet": 93, "life_expectancy": 81, "risk": "Low"},
-  "Ukraine": {"gdp": 200, "gdp_per_capita": 4800, "literacy": 99, "internet": 80, "life_expectancy": 71, "risk": "High"},
-  "Palestine": {"gdp": 20, "gdp_per_capita": 3500, "literacy": 97, "internet": 72, "life_expectancy": 74, "risk": "High"}
-}
