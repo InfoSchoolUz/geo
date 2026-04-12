@@ -1,7 +1,6 @@
 streamlit
-folium
 streamlit-folium
+folium
 requests
 pandas
-feedparser
-beautifulsoup4
+wikipedia
