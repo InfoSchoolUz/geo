@@ -1,181 +1,110 @@
 import streamlit as st
-import folium
-from streamlit_folium import st_folium
-import requests
 import pandas as pd
-import feedparser
-from bs4 import BeautifulSoup
+import plotly.express as px
 
-st.set_page_config(layout="wide", page_title="🌍 Global Davlatlar Platformasi")
+st.set_page_config(page_title="🌍 World Data Explorer", layout="wide")
 
-# ================= API =================
+# ====== TITLE ======
+st.markdown("""
+# 🌍 World Data Explorer
+### Interaktiv xarita + davlat statistikasi
+""")
+
+# ====== LOAD DATA ======
 @st.cache_data
-def load_countries():
+def load_data():
+    df = px.data.gapminder()
+    df = df[df["year"] == 2007]  # Oxirgi to‘liq dataset
+    return df
+
+df = load_data()
+
+# ====== MAP ======
+st.subheader("🌎 Xarita ustida davlat tanlang")
+
+fig = px.choropleth(
+    df,
+    locations="iso_alpha",
+    color="gdpPercap",
+    hover_name="country",
+    color_continuous_scale="viridis",
+    title="GDP per Capita (2007)",
+)
+
+fig.update_layout(
+    height=600,
+    margin=dict(l=0, r=0, t=50, b=0)
+)
+
+selected_country = st.plotly_chart(
+    fig,
+    use_container_width=True,
+    on_select="rerun"
+)
+
+# ====== HANDLE CLICK ======
+country_name = None
+
+if "selection" in selected_country and selected_country["selection"]:
     try:
-        res = requests.get("https://restcountries.com/v3.1/all", timeout=10)
-        data = res.json()
+        point = selected_country["selection"]["points"][0]
+        iso = point["location"]
+        country_row = df[df["iso_alpha"] == iso]
 
-        countries = []
-        for d in data:
-            try:
-                # 💰 VALYUTA (nom + kod + belgi)
-                curr = d.get("currencies", {})
-                if curr:
-                    code = list(curr.keys())[0]
-                    val = curr[code]
-                    name = val.get("name", "")
-                    symbol = val.get("symbol", "")
-                    currency = f"{name} ({code}) {symbol}"
-                else:
-                    currency = "Noma'lum"
-
-                countries.append({
-                    "nom": d["name"]["common"],
-                    "kod": d["cca2"].lower(),
-                    "poytaxt": d.get("capital", ["Noma'lum"])[0],
-                    "mintaqa": d.get("region", "Boshqa"),
-                    "lat": d["latlng"][0],
-                    "lon": d["latlng"][1],
-                    "aholi": d.get("population", 0),
-                    "maydon": d.get("area", 0),
-                    "til": ", ".join(d.get("languages", {}).values()) if d.get("languages") else "Noma'lum",
-                    "valyuta": currency,
-                })
-            except:
-                continue
-
-        return countries
+        if not country_row.empty:
+            country_name = country_row.iloc[0]["country"]
     except:
-        return []
+        pass
 
-countries = load_countries()
-
-# ================= FORMAT =================
-for c in countries:
-    c["aholi_fmt"] = f"{round(c['aholi']/1e6,2)} mln"
-    c["maydon_fmt"] = f"{c['maydon']:,.0f} km²"
-    c["zichlik"] = round(c["aholi"]/c["maydon"],1) if c["maydon"] else 0
-
-# ================= WIKIPEDIA =================
-@st.cache_data
-def get_prezident(davlat):
-    try:
-        url = f"https://en.wikipedia.org/wiki/{davlat.replace(' ', '_')}"
-        res = requests.get(url, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-
-        infobox = soup.find("table", {"class": "infobox"})
-        rows = infobox.find_all("tr")
-
-        for row in rows:
-            th = row.find("th")
-            if th:
-                txt = th.text.lower()
-                if "president" in txt or "prime minister" in txt:
-                    return row.find("td").text.strip()
-
-        return "Topilmadi"
-    except:
-        return "Xato"
-
-# ================= STATIC =================
-DEEP = {
-    "Japan": {"zilzila":"Yuqori","nizo":"Xitoy"},
-    "Turkey": {"zilzila":"Yuqori","nizo":"Suriya"},
-    "Ukraine": {"zilzila":"Past","nizo":"Rossiya"},
-    "Uzbekistan": {"zilzila":"O‘rta","nizo":"Yo‘q"},
-}
-
-# ================= NEWS =================
-@st.cache_data(ttl=600)
-def get_news(country):
-    url = f"https://news.google.com/rss/search?q={country}"
-    feed = feedparser.parse(url)
-    return [(e.title, e.link) for e in feed.entries[:5]]
-
-# ================= SIDEBAR =================
-with st.sidebar:
-    st.markdown("## 🌍 Filtr")
-    regions = sorted(set(c["mintaqa"] for c in countries))
-    sel = st.selectbox("Mintaqa", ["Barchasi"] + regions)
-
-    st.markdown("---")
-    comp = st.checkbox("⚖️ Taqqoslash")
-
-    if comp:
-        names = [c["nom"] for c in countries]
-        c1 = st.selectbox("1-davlat", names)
-        c2 = st.selectbox("2-davlat", names, index=1)
-
-# ================= MAP =================
-st.title("🌍 Global Davlatlar Platformasi")
-st.caption("Davlatni xaritada bosing")
-
-filtered = [c for c in countries if sel=="Barchasi" or c["mintaqa"]==sel]
-
-m = folium.Map(location=[20,0], zoom_start=2, tiles="CartoDB dark_matter")
-
-for c in filtered:
-    folium.CircleMarker([c["lat"],c["lon"]], radius=5, color="#00e5ff", fill=True).add_to(m)
-
-map_data = st_folium(m, width="100%", height=500, returned_objects=["last_object_clicked"])
-
-# ================= COMPARE =================
-if comp:
-    a = next((x for x in countries if x["nom"]==c1), None)
-    b = next((x for x in countries if x["nom"]==c2), None)
-
-    col1, col2 = st.columns(2)
-
-    def show(c, col):
-        with col:
-            st.image(f"https://flagcdn.com/w160/{c['kod']}.png")
-            st.subheader(c["nom"])
-            st.write("Poytaxt:", c["poytaxt"])
-            st.write("Aholi:", c["aholi_fmt"])
-            st.write("Valyuta:", c["valyuta"])
-
-    show(a, col1)
-    show(b, col2)
+# ====== DEFAULT STATE ======
+if not country_name:
+    st.info("👆 Xarita ustidan davlat ustiga bosing")
     st.stop()
 
-# ================= DETAIL =================
-if map_data and map_data.get("last_object_clicked"):
-    lat = map_data["last_object_clicked"]["lat"]
-    lon = map_data["last_object_clicked"]["lng"]
+# ====== COUNTRY DATA ======
+country_data = df[df["country"] == country_name].iloc[0]
 
-    c = min(filtered, key=lambda x:(x["lat"]-lat)**2+(x["lon"]-lon)**2)
+# ====== DISPLAY ======
+st.markdown(f"# 📊 {country_name} statistikasi")
 
-    st.image(f"https://flagcdn.com/w320/{c['kod']}.png")
-    st.header(c["nom"])
+col1, col2, col3, col4 = st.columns(4)
 
-    prezident = get_prezident(c["nom"])
+col1.metric("👥 Aholi", f"{int(country_data['pop']):,}")
+col2.metric("💰 GDP per capita", f"${country_data['gdpPercap']:.2f}")
+col3.metric("❤️ Life expectancy", f"{country_data['lifeExp']:.1f} yil")
+col4.metric("🌍 Qit'a", country_data['continent'])
 
-    extra = DEEP.get(c["nom"], {})
-    zilzila = extra.get("zilzila","Noma'lum")
-    nizo = extra.get("nizo","Noma'lum")
+# ====== CHARTS ======
+st.subheader("📈 Trendlar (1952–2007)")
 
-    df = pd.DataFrame({
-        "Ko‘rsatkich":[
-            "Poytaxt","Aholi","Maydon","Zichlik",
-            "Til","Valyuta","Prezident"
-        ],
-        "Qiymat":[
-            c["poytaxt"],c["aholi_fmt"],c["maydon_fmt"],
-            f"{c['zichlik']}/km²",
-            c["til"],c["valyuta"],prezident
-        ]
-    })
+history = px.data.gapminder()
+history = history[history["country"] == country_name]
 
-    st.table(df)
+colA, colB = st.columns(2)
 
-    st.markdown("### 🌋 Xavf va nizo")
-    st.error(f"Zilzila: {zilzila}")
-    st.warning(f"Nizo: {nizo}")
+with colA:
+    fig_pop = px.line(
+        history,
+        x="year",
+        y="pop",
+        title="Aholi o‘sishi"
+    )
+    st.plotly_chart(fig_pop, use_container_width=True)
 
-    st.markdown("### 📰 Yangiliklar")
-    for t,l in get_news(c["nom"]):
-        st.markdown(f"- [{t}]({l})")
+with colB:
+    fig_life = px.line(
+        history,
+        x="year",
+        y="lifeExp",
+        title="Hayot davomiyligi"
+    )
+    st.plotly_chart(fig_life, use_container_width=True)
 
-else:
-    st.info("👉 Xarita ustida davlatni bosing")
+# ====== EXTRA ======
+st.subheader("🌐 Qo‘shimcha ma'lumotlar")
+
+st.dataframe(history[["year", "pop", "lifeExp", "gdpPercap"]])
+
+# ====== FOOTER ======
+st.markdown("---")
+st.markdown("Developed by Azamat Madrimov 🚀")
