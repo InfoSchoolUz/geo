@@ -6,7 +6,7 @@ import pandas as pd
 import random
 import wikipedia
 
-# --- SAHIFA SOZLAMALARI ---
+# --- 1. SAHIFA SOZLAMALARI ---
 st.set_page_config(
     page_title="Dunyo Ma'lumotlari Paneli",
     page_icon="🌍",
@@ -16,7 +16,7 @@ st.set_page_config(
 # Wikipedia tilini o'zbekchaga sozlash
 wikipedia.set_lang("uz")
 
-# --- MA'LUMOTLARNI YUKLASH (O'ZBEKCHA TRANSLATSIYA BILAN) ---
+# --- 2. MA'LUMOTLARNI YUKLASH (XATOLIKDAN HIMOYALANGAN) ---
 @st.cache_data(ttl=86400)
 def fetch_global_data():
     url = "https://restcountries.com/v3.1/all"
@@ -25,6 +25,9 @@ def fetch_global_data():
         response.raise_for_status()
         data = response.json()
         
+        if not isinstance(data, list):
+            raise ValueError("API noto'g'ri formatda ma'lumot qaytardi")
+            
         countries_map = {}
         for c in data:
             # O'zbekcha nomini olish (API'dan translations -> uzb)
@@ -37,15 +40,30 @@ def fetch_global_data():
                 countries_map[display_name]['en_name_ref'] = en_name
                 
         return countries_map, sorted(list(countries_map.keys()))
+    
     except Exception as e:
-        st.error(f"Ma'lumotlarni yuklashda xatolik: {e}")
-        return {}, []
+        # API xato bersa, zaxira (fallback) ma'lumot qaytaramiz
+        st.warning(f"API ma'lumotlarini yuklashda muammo: {e}. Zaxira rejimi ishga tushdi.")
+        fallback = {
+            "Oʻzbekiston": {
+                "latlng": [41.0, 64.0],
+                "en_name_ref": "Uzbekistan",
+                "capital": ["Toshkent"],
+                "population": 36000000,
+                "area": 448978,
+                "region": "Osiyo",
+                "flags": {"png": "https://flagcdn.com/w320/uz.png"},
+                "currencies": {"UZS": {"name": "O'zbek so'mi", "symbol": "so'm"}},
+                "languages": {"uzb": "O'zbek tili"}
+            }
+        }
+        return fallback, ["Oʻzbekiston"]
 
 COUNTRIES_DB, COUNTRY_NAMES = fetch_global_data()
 
+# --- 3. WIKIPEDIA FUNKSIYASI ---
 @st.cache_data(ttl=86400)
 def get_wiki_summary(uz_name, en_name):
-    """Wikipedia'dan qisqacha ma'lumot olish"""
     try:
         wikipedia.set_lang("uz")
         return wikipedia.summary(uz_name, sentences=3)
@@ -54,36 +72,47 @@ def get_wiki_summary(uz_name, en_name):
             wikipedia.set_lang("en")
             return wikipedia.summary(en_name, sentences=3)
         except:
-            return "Ushbu davlat haqida o'zbekcha Wikipedia ma'lumoti topilmadi."
+            return "Ushbu davlat haqida Wikipedia ma'lumoti topilmadi."
 
-# --- SESSION STATE (HOLATNI SAQLASH) ---
+# --- 4. SESSION STATE (HOLATNI BOSHQARISH) ---
 if 'selected_country' not in st.session_state:
-    st.session_state.selected_country = "Oʻzbekiston" if "Oʻzbekiston" in COUNTRY_NAMES else COUNTRY_NAMES[0]
+    if "Oʻzbekiston" in COUNTRY_NAMES:
+        st.session_state.selected_country = "Oʻzbekiston"
+    elif COUNTRY_NAMES:
+        st.session_state.selected_country = COUNTRY_NAMES[0]
+    else:
+        st.session_state.selected_country = None
 
-# --- SIDEBAR (YON PANEL) ---
+# --- 5. SIDEBAR (YON PANEL) ---
 with st.sidebar:
     st.title("🗺 Dunyo Intelligence")
     st.markdown("---")
     
-    choice = st.selectbox(
-        "Davlatni tanlang:",
-        COUNTRY_NAMES,
-        index=COUNTRY_NAMES.index(st.session_state.selected_country) if st.session_state.selected_country in COUNTRY_NAMES else 0
-    )
-    
-    if choice != st.session_state.selected_country:
-        st.session_state.selected_country = choice
-        st.rerun()
+    if COUNTRY_NAMES:
+        choice = st.selectbox(
+            "Davlatni tanlang:",
+            COUNTRY_NAMES,
+            index=COUNTRY_NAMES.index(st.session_state.selected_country) if st.session_state.selected_country in COUNTRY_NAMES else 0
+        )
+        
+        if choice != st.session_state.selected_country:
+            st.session_state.selected_country = choice
+            st.rerun()
     
     st.info("💡 Maslahat: Xaritadagi nuqtalarni bosib ham davlatni o'zgartirishingiz mumkin.")
+    st.markdown("Developed by **Azamat Madrimov** 🚀")
 
-# --- ASOSIY INTERFEYS ---
-st.title(f"🌍 {st.session_state.selected_country} bo'yicha tahliliy ma'lumotlar")
+# --- 6. ASOSIY INTERFEYS ---
+if not st.session_state.selected_country:
+    st.error("Ma'lumotlar mavjud emas.")
+    st.stop()
+
+st.title(f"🌍 {st.session_state.selected_country} bo'yicha tahlil")
 
 col_left, col_right = st.columns([1.8, 1.2], gap="large")
 
 with col_left:
-    # Xarita qismi
+    # Xarita
     current_data = COUNTRIES_DB.get(st.session_state.selected_country)
     m = folium.Map(
         location=current_data["latlng"], 
@@ -91,7 +120,7 @@ with col_left:
         tiles="cartodb dark_matter"
     )
     
-    # Nuqtalarni xaritaga qo'shish
+    # Barcha davlat nuqtalarini chizish
     for name, d in COUNTRIES_DB.items():
         is_selected = (name == st.session_state.selected_country)
         folium.CircleMarker(
@@ -103,13 +132,12 @@ with col_left:
             popup=name
         ).add_to(m)
 
-    map_data = st_folium(m, height=500, width="100%", key="main_map")
+    map_res = st_folium(m, height=500, width="100%", key="main_map")
 
-    # Xaritadan bosilganda tanlovni o'zgartirish
-    if map_data.get("last_object_clicked"):
-        lat = map_data["last_object_clicked"]["lat"]
-        lon = map_data["last_object_clicked"]["lng"]
-        
+    # Xaritadan bosilganda tanlovni yangilash
+    if map_res.get("last_object_clicked"):
+        lat = map_res["last_object_clicked"]["lat"]
+        lon = map_res["last_object_clicked"]["lng"]
         closest = min(COUNTRIES_DB.keys(), 
                       key=lambda n: (COUNTRIES_DB[n]["latlng"][0]-lat)**2 + (COUNTRIES_DB[n]["latlng"][1]-lon)**2)
         
@@ -118,55 +146,34 @@ with col_left:
             st.rerun()
 
 with col_right:
-    if current_data:
-        # Bayroq va Asosiy ma'lumotlar
-        st.image(current_data.get("flags", {}).get("png"), width=180)
-        
-        # JADVAL KO'RINISHIDA MA'LUMOTLAR
-        st.subheader("📊 Asosiy ko'rsatkichlar")
-        
-        # API ma'lumotlarini o'zbekchalashtirish
-        curr_info = current_data.get("currencies", {})
-        valyuta = ", ".join([f"{v.get('name')} ({v.get('symbol')})" for v in curr_info.values()]) if curr_info else "Noma'lum"
-        tillar = ", ".join(current_data.get("languages", {}).values()) if current_data.get("languages") else "Noma'lum"
-        
-        # Tasodifiy demo ma'lumotlar (o'zgarmas seed bilan)
-        random.seed(hash(st.session_state.selected_country))
-        savodxonlik = random.randint(70, 99)
-        internet_speed = random.randint(15, 200)
+    # Ma'lumotlar jadvali
+    st.image(current_data.get("flags", {}).get("png"), width=150)
+    st.subheader("📊 Asosiy ko'rsatkichlar")
+    
+    curr_info = current_data.get("currencies", {})
+    valyuta = ", ".join([f"{v.get('name')} ({v.get('symbol')})" for v in curr_info.values()]) if curr_info else "Noma'lum"
+    tillar = ", ".join(current_data.get("languages", {}).values()) if current_data.get("languages") else "Noma'lum"
+    
+    # Demo ma'lumotlar uchun seed
+    random.seed(hash(st.session_state.selected_country))
+    df_data = {
+        "Ko'rsatkich": ["🏙 Poytaxt", "👥 Aholi", "📏 Maydon", "💰 Valyuta", "🗣 Tillar", "🌍 Mintaqa"],
+        "Qiymat": [
+            current_data.get("capital", ["Noma'lum"])[0],
+            f"{current_data.get('population', 0):,}",
+            f"{current_data.get('area', 0):,} km²",
+            valyuta,
+            tillar,
+            current_data.get("region", "Noma'lum")
+        ]
+    }
+    st.table(pd.DataFrame(df_data))
 
-        df_data = {
-            "Ko'rsatkich": [
-                "🏙 Poytaxt", 
-                "👥 Aholi soni", 
-                "📏 Maydon", 
-                "💰 Milliy valyuta", 
-                "🗣 Rasmiy tillar",
-                "🌍 Mintaqa",
-                "📶 Internet tezligi",
-                "🎓 Savodxonlik"
-            ],
-            "Qiymat": [
-                current_data.get("capital", ["Noma'lum"])[0],
-                f"{current_data.get('population', 0):,}",
-                f"{current_data.get('area', 0):,} km²",
-                valyuta,
-                tillar,
-                current_data.get("region", "Noma'lum"),
-                f"{internet_speed} Mb/s (Demo)",
-                f"{savodxonlik}% (Demo)"
-            ]
-        }
-        
-        st.table(pd.DataFrame(df_data))
-
-# --- WIKIPEDIA VA FOOTER ---
+# --- 7. WIKIPEDIA MATNI ---
 st.markdown("---")
-st.subheader("📖 Ensiklopedik ma'lumot (Wikipedia)")
+st.subheader("📖 Vikipediya ma'lumoti")
+with st.spinner("Wikipedia'dan yuklanmoqda..."):
+    summary = get_wiki_summary(st.session_state.selected_country, current_data.get('en_name_ref', ''))
+    st.write(summary)
 
-with st.spinner("Wikipedia'dan o'zbekcha ma'lumotlar qidirilmoqda..."):
-    wiki_text = get_wiki_summary(st.session_state.selected_country, current_data['en_name_ref'])
-    st.write(wiki_text)
-
-st.markdown("---")
-st.caption(f"Ma'lumotlar manbasi: RestCountries API & Wikipedia. Ishlab chiquvchi: Azamat Madrimov 🚀")
+st.markdown(f"*[Batafsil Wikipedia'da o'qing](https://uz.wikipedia.org/wiki/{st.session_state.selected_country.replace(' ', '_')})*")
