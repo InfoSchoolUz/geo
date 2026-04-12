@@ -5,151 +5,136 @@ import requests
 import pandas as pd
 import random
 
-st.set_page_config(layout="wide")
+# Sahifa sozlamalari
+st.set_page_config(layout="wide", page_title="World Intelligence Dashboard")
 
 st.title("🌍 World Intelligence Dashboard")
 
-# ===== LOAD DATA =====
+# ===== 1. MA'LUMOTLARNI YUKLASH VA KESHLASH =====
 @st.cache_data
-def load_data():
+def get_processed_data():
     url = "https://restcountries.com/v3.1/all"
-    res = requests.get(url)
-    if res.status_code != 200:
-        return []
-    return res.json()
+    try:
+        res = requests.get(url, timeout=10)
+        data = res.json()
+    except Exception:
+        return {}, []
 
-countries = load_data()
+    country_dict = {}
+    name_list = []
+    
+    for c in data:
+        name = c.get("name", {}).get("common")
+        if name:
+            country_dict[name] = c
+            name_list.append(name)
+            
+    return country_dict, sorted(name_list)
 
-# ===== SAFE NAME FUNCTION =====
-def get_name(c):
-    return c.get("name", {}).get("common")
+country_data, all_names = get_processed_data()
 
-# ===== MAP =====
-m = folium.Map(location=[20, 0], zoom_start=2, tiles="cartodb dark_matter")
+# ===== 2. XARITANI KESHLASH =====
+@st.cache_resource
+def create_base_map(countries_info):
+    m = folium.Map(location=[20, 0], zoom_start=2, tiles="cartodb dark_matter")
+    for name, c in countries_info.items():
+        latlng = c.get("latlng")
+        if latlng and len(latlng) == 2:
+            folium.CircleMarker(
+                location=latlng,
+                radius=4,
+                color="#38bdf8",
+                fill=True,
+                tooltip=name # Kursor borganda nomini chiqaradi
+            ).add_to(m)
+    return m
 
-country_coords = {}
+# ===== 3. SESSION STATE (HOLATNI BOSHQARISH) =====
+if 'selected_country' not in st.session_state:
+    st.session_state.selected_country = None
 
-for c in countries:
-    name = get_name(c)
-    latlng = c.get("latlng")
-
-    if name and latlng:
-        lat, lon = latlng
-        country_coords[name] = (lat, lon)
-
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=4,
-            color="#38bdf8",
-            fill=True
-        ).add_to(m)
-
-map_data = st_folium(m, height=600)
-
-selected = None
-
-# ===== CLICK =====
-if map_data and map_data.get("last_object_clicked"):
-    lat = map_data["last_object_clicked"]["lat"]
-    lon = map_data["last_object_clicked"]["lng"]
-
-    def nearest(lat, lon):
-        closest = None
-        dist_min = float("inf")
-
-        for name, (clat, clon) in country_coords.items():
-            dist = (lat - clat) ** 2 + (lon - clon) ** 2
-            if dist < dist_min:
-                dist_min = dist
-                closest = name
-        return closest
-
-    selected = nearest(lat, lon)
-
-# ===== SELECTBOX =====
-names = sorted(filter(None, [get_name(c) for c in countries]))
-manual = st.selectbox("Davlat tanlang:", ["None"] + names)
-
-if manual != "None":
-    selected = manual
-
-if not selected:
-    st.info("👆 Xarita ustiga bosib davlat tanlang")
-    st.stop()
-
-# ===== GET COUNTRY (SAFE) =====
-country = next(
-    (c for c in countries if get_name(c) == selected),
-    None
+# Sidebar orqali qidiruv
+st.sidebar.header("Filterlar")
+manual_select = st.sidebar.selectbox(
+    "Davlatni qidirish:", 
+    ["None"] + all_names,
+    index=0
 )
 
-if not country:
-    st.error("❌ Davlat topilmadi")
-    st.stop()
+# Agar selectbox o'zgarsa, sessionni yangilaymiz
+if manual_select != "None":
+    st.session_state.selected_country = manual_select
 
-# ===== REAL DATA =====
-flag = country.get("flags", {}).get("png", "")
-capital = country.get("capital", ["N/A"])[0]
-population = country.get("population", 0)
-area = country.get("area", 0)
+# ===== 4. XARITANI CHIQARISH =====
+col_map, col_info = st.columns([2, 1])
 
-# currency
-currencies = country.get("currencies", {})
-currency = ", ".join([v.get("name", "") for v in currencies.values()]) if currencies else "N/A"
+with col_map:
+    base_map = create_base_map(country_data)
+    # use_container_width=True xaritani ustunga moslaydi
+    output = st_folium(base_map, height=500, width="100%", key="main_map")
 
-# languages
-languages = country.get("languages", {})
-langs = ", ".join(languages.values()) if languages else "N/A"
+# Xaritadan bosilganda tanlovni yangilash
+if output.get("last_object_clicked"):
+    click_lat = output["last_object_clicked"]["lat"]
+    click_lon = output["last_object_clicked"]["lng"]
+    
+    # Eng yaqin davlatni topish (Optimallashtirilgan kvadratik masofa)
+    def find_nearest(lat, lon):
+        dist_min = float("inf")
+        closest = st.session_state.selected_country
+        for name, c in country_data.items():
+            coords = c.get("latlng")
+            if coords:
+                d = (lat - coords[0])**2 + (lon - coords[1])**2
+                if d < dist_min:
+                    dist_min = d
+                    closest = name
+        return closest
+    
+    # Faqat juda yaqin bo'lsa (taxminan 5 daraja radiusda) tanlaymiz
+    potential_name = find_nearest(click_lat, click_lon)
+    if potential_name != st.session_state.selected_country:
+        st.session_state.selected_country = potential_name
+        st.rerun()
 
-region = country.get("region", "N/A")
+# ===== 5. MA'LUMOTLARNI KO'RSATISH =====
+with col_info:
+    selected = st.session_state.selected_country
+    
+    if not selected:
+        st.info("👆 Davlat haqida ma'lumot olish uchun xaritadan nuqtani bosing yoki qidiruvdan foydalaning.")
+    else:
+        country = country_data.get(selected)
+        if country:
+            # Ma'lumotlarni tayyorlash
+            flag = country.get("flags", {}).get("png", "")
+            capital = country.get("capital", ["N/A"])[0]
+            pop = country.get("population", 0)
+            area = country.get("area", 0)
+            currencies = country.get("currencies", {})
+            curr_str = ", ".join([v.get("name", "") for v in currencies.values()]) if currencies else "N/A"
+            langs = ", ".join(country.get("languages", {}).values()) or "N/A"
+            
+            # Tasodifiy ma'lumotlar (Keshlanmagan bo'lsa har safar o'zgaradi, 
+            # buni oldini olish uchun seed dan foydalanamiz)
+            random.seed(hash(selected))
+            univs = random.randint(50, 5000)
+            
+            st.image(flag, width=150)
+            st.subheader(f"📊 {selected}")
+            
+            stats = {
+                "🏙 Poytaxt": capital,
+                "👥 Aholi": f"{pop:,}",
+                "📏 Maydon": f"{area:,} km²",
+                "💰 Valyuta": curr_str,
+                "🗣 Tillar": langs,
+                "🎓 Universitetlar": univs
+            }
+            
+            for k, v in stats.items():
+                st.write(f"**{k}:** {v}")
 
-# ===== FAKE DATA =====
-universities = random.randint(50, 5000)
-schools = random.randint(1000, 200000)
-colleges = random.randint(100, 10000)
-agriculture = random.randint(5, 40)
-
-# ===== DISPLAY =====
-st.subheader(f"📊 {selected}")
-
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    if flag:
-        st.image(flag, width=200)
-
-with col2:
-    st.markdown(f"### 🌍 {region}")
-
-# ===== TABLE =====
-df = pd.DataFrame({
-    "Ko‘rsatkich": [
-        "🏙 Poytaxt",
-        "👥 Aholi",
-        "📏 Maydon (km²)",
-        "💰 Valyuta",
-        "🗣 Til(lar)",
-        "🎓 Universitetlar soni",
-        "🏫 Maktablar soni",
-        "🏛 Kollejlar soni",
-        "🌾 Qishloq xo‘jaligi (%)"
-    ],
-    "Qiymat": [
-        capital,
-        f"{population:,}",
-        f"{area:,}",
-        currency,
-        langs,
-        universities,
-        schools,
-        colleges,
-        f"{agriculture}%"
-    ]
-})
-
-st.table(df)
-
-# ===== FOOTER =====
+# Footer
 st.markdown("---")
-st.caption("⚠️ Education va agriculture ma'lumotlari demo (random)")
-st.markdown("Developed by Azamat Madrimov 🚀")
+st.caption("Developed by Azamat Madrimov 🚀 | Data: RestCountries API")
