@@ -269,11 +269,31 @@ else:
     region        = c.get("region", "—")
     subregion     = c.get("subregion", "—")
     borders       = c.get("borders", [])
-    languages     = ", ".join(c.get("languages", [])) if c.get("languages") else "—"
-    currencies    = c.get("currencies", [])
-    currency_text = ", ".join([x.get("name","") for x in currencies]) if currencies else "—"
-    tld           = ", ".join(c.get("topLevelDomain", [])) or "—"
-    phone         = ", ".join(c.get("callingCodes", [])) or "—"
+    def safe_list(val):
+        if isinstance(val, list): return val
+        if isinstance(val, dict): return list(val.values())
+        return []
+
+    def parse_languages(val):
+        items = safe_list(val)
+        result = []
+        for l in items:
+            if isinstance(l, dict): result.append(l.get("name") or l.get("nativeName") or str(l))
+            else: result.append(str(l))
+        return ", ".join(result) if result else "—"
+
+    def parse_currencies(val):
+        items = safe_list(val)
+        result = []
+        for x in items:
+            if isinstance(x, dict): result.append(x.get("name") or x.get("code") or str(x))
+            else: result.append(str(x))
+        return ", ".join(result) if result else "—"
+
+    languages     = parse_languages(c.get("languages"))
+    currency_text = parse_currencies(c.get("currencies"))
+    tld           = ", ".join(safe_list(c.get("topLevelDomain"))) or "—"
+    phone         = ", ".join(safe_list(c.get("callingCodes"))) or "—"
     timezones     = c.get("timezones", [])
     car_side      = c.get("carSide", "—")
     car_signs     = ", ".join(c.get("carSigns", [])) if c.get("carSigns") else "—"
