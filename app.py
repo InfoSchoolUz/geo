@@ -2,28 +2,24 @@ import streamlit as st
 import folium
 from streamlit_folium import st_folium
 import requests
-import pandas as pd
 
-# 1. Sahifa sozlamalari (Professional UI)
-st.set_page_config(page_title="Global Insight Pro", layout="wide", page_icon="🌍")
+# 1. Sahifa sozlamalari
+st.set_page_config(page_title="Global Country Data Pro", layout="wide", page_icon="🌍")
 
-# Maxsus CSS dizayn (Vizual ko'rinishni yaxshilash uchun)
+# CSS dizayn - Vizual joziba uchun
 st.markdown("""
     <style>
-    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #e5e7eb; }
-    h1 { color: #1e3a8a; font-family: 'Helvetica Neue', sans-serif; text-align: center; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; justify-content: center; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #f0f2f6; border-radius: 5px; padding: 10px 20px; }
-    .stTabs [aria-selected="true"] { background-color: #1e3a8a; color: white; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    h1 { color: #1e3a8a; text-align: center; }
+    .stTabs [data-baseweb="tab"] { font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🌍 Global Davlatlar Analitik Platformasi")
-st.markdown("---")
+st.title("🌍 Dunyo Davlatlari: To'liq Statistik Ma'lumotlar")
 
-# 2. Ma'lumotlarni yuklash (Caching bilan)
+# 2. Ma'lumotlarni API orqali yuklash
 @st.cache_data
-def get_country_data():
+def get_all_data():
     try:
         url = "https://restcountries.com/v3.1/all"
         response = requests.get(url)
@@ -31,115 +27,118 @@ def get_country_data():
     except:
         return None
 
-data = get_country_data()
+data = get_all_data()
 
 if data:
+    # Davlatlar ro'yxati
     countries_list = sorted([c['name']['common'] for c in data])
+    st.sidebar.header("Qidiruv va Tanlov")
+    selected_country = st.sidebar.selectbox("Davlatni tanlang:", countries_list, index=countries_list.index("Uzbekistan") if "Uzbekistan" in countries_list else 0)
     
-    # Sidebar qidiruv
-    st.sidebar.image("https://cdn-icons-png.flaticon.com/512/854/854878.png", width=100)
-    st.sidebar.header("Davlat Tanlovi")
-    selected_name = st.sidebar.selectbox("Davlatni tanlang:", countries_list, index=countries_list.index("Uzbekistan") if "Uzbekistan" in countries_list else 0)
+    # Tanlangan davlat ma'lumotlari
+    c = next(item for item in data if item["name"]["common"] == selected_country)
     
-    # Tanlangan davlat ma'lumotlarini ajratish
-    c = next(item for item in data if item["name"]["common"] == selected_name)
+    # Xavfsiz o'zgaruvchilar (Xatolik chiqmasligi uchun)
+    poytaxt_list = c.get('capital', ["Noma'lum"])
+    poytaxt = poytaxt_list[0]
+    aholi = c.get('population', 0)
+    maydon = c.get('area', 0)
+    mintaqa = c.get('region', "Noma'lum")
+    sub_mintaqa = c.get('subregion', "Noma'lum")
     
-    # 3. Yuqori qism: Bayroq, Gerb va Asosiy ko'rsatkichlar
-    col_f, col_g, col_t = st.columns([1, 1, 3])
-    with col_f:
-        st.image(c['flags']['png'], use_container_width=True, caption="Bayroq")
-    with col_g:
+    # 3. Yuqori qism: Ramzlar va Prezident
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        st.image(c['flags']['png'], use_container_width=True, caption="Davlat Bayrog'i")
+    
+    with col2:
         if 'coatOfArms' in c and 'png' in c['coatOfArms']:
-            st.image(c['coatOfArms']['png'], use_container_width=True, caption="Gerb")
+            st.image(c['coatOfArms']['png'], use_container_width=True, caption="Davlat Gerbi")
         else:
-            st.info("Gerb mavjud emas")
-    with col_t:
+            st.warning("Gerb topilmadi")
+            
+    with col3:
         # Prezidentlar bazasi
-        presidents = {
-            "Uzbekistan": "Shavkat Mirziyoyev", "USA": "Joe Biden", "Russia": "Vladimir Putin",
-            "Kazakhstan": "Kassym-Jomart Tokayev", "Turkey": "Recep Tayyip Erdoğan", "China": "Xi Jinping",
-            "Germany": "Frank-Walter Steinmeier", "France": "Emmanuel Macron", "Tajikistan": "Emomali Rahmon"
+        presidents_db = {
+            "Uzbekistan": "Shavkat Mirziyoyev",
+            "USA": "Joe Biden",
+            "Russia": "Vladimir Putin",
+            "Turkey": "Recep Tayyip Erdoğan",
+            "Kazakhstan": "Kassym-Jomart Tokayev",
+            "Kyrgyzstan": "Sadyr Japarov",
+            "Tajikistan": "Emomali Rahmon",
+            "Turkmenistan": "Serdar Berdimuhamedov",
+            "China": "Xi Jinping",
+            "Germany": "Frank-Walter Steinmeier",
+            "France": "Emmanuel Macron"
         }
-        pres_name = presidents.get(selected_name, "Ma'lumot qidirilmoqda...")
+        prezident = presidents_db.get(selected_country, "Ma'lumotlar bazada mavjud emas")
         
-        st.subheader(f"📍 {selected_name}")
-        st.write(f"**Davlat Rahbari (Prezident):** {pres_name}")
-        st.write(f"**Poytaxt:** {c.get('capital', [\"Noma'lum\"])[0]}")
+        st.subheader(f"📍 {selected_country}")
+        st.write(f"👤 **Prezident:** {prezident}")
+        st.write(f"🏛️ **Poytaxt:** {poytaxt}")
+        st.write(f"🌐 **Mintaqa:** {mintaqa} ({sub_mintaqa})")
 
     st.markdown("---")
 
-    # 4. Asosiy mazmun (Tablar)
-    tab1, tab2, tab3, tab4 = st.tabs(["🗺️ Xarita va Hudud", "🎓 Ta'lim Tizimi", "🚜 Qishloq Xo'jaligi", "💰 Moliya va Til"])
+    # 4. Tablar orqali batafsil statistika
+    t1, t2, t3, t4 = st.tabs(["🗺️ Xarita", "🎓 Ta'lim", "🚜 Qishloq Xo'jaligi", "💰 Moliya va Til"])
 
-    with tab1:
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            lat, lon = c['latlng']
-            m = folium.Map(location=[lat, lon], zoom_start=5, tiles="CartoDB Voyager")
-            folium.Marker([lat, lon], popup=selected_name, icon=folium.Icon(color="red", icon="university", prefix="fa")).add_to(m)
-            st_folium(m, width=700, height=400)
-        with c2:
-            st.metric("Umumiy Maydon", f"{c.get('area', 0):,} km²")
-            st.metric("Aholi Soni", f"{c.get('population', 0):,}")
-            st.write(f"**Region:** {c.get('region')} ({c.get('subregion', '')})")
-
-    with tab2:
-        st.subheader("🎓 Ta'lim Muassasalari (Statistik Hisob)")
-        pop = c.get('population', 1)
-        uni = max(3, int(pop / 350000))
-        coll = int(uni * 2.5)
-        sch = int(pop / 2800)
+    with t1:
+        lat, lon = c['latlng']
+        m = folium.Map(location=[lat, lon], zoom_start=5)
+        folium.Marker([lat, lon], popup=selected_country).add_to(m)
+        st_folium(m, width=800, height=400)
         
-        c3, c4, c5 = st.columns(3)
-        c3.metric("Universitetlar", f"~{uni:,}")
-        c4.metric("Kollejlar", f"~{coll:,}")
-        c5.metric("Maktablar", f"~{sch:,}")
-        st.caption("Eslatma: Ma'lumotlar aholi sonining global o'rtacha taqsimotiga ko'ra hisoblangan.")
+        c_m1, c_m2 = st.columns(2)
+        c_m1.metric("Aholi soni", f"{aholi:,} kishi")
+        c_m2.metric("Yer maydoni", f"{maydon:,} km²")
 
-    with tab3:
-        st.subheader("🚜 Qishloq Xo'jaligi va Resurslar")
-        area = c.get('area', 1)
-        agro_land = int(area * 0.42) 
+    with t2:
+        st.subheader("🎓 Ta'lim statistikasi (Aholi soniga ko'ra)")
+        # Statistik hisob-kitoblar
+        unis = max(1, int(aholi / 400000))
+        schools = max(1, int(aholi / 3000))
+        colleges = int(unis * 3)
         
-        c6, c7 = st.columns(2)
-        with c6:
-            st.write(f"**Haydaladigan jami yerlar:** ~{agro_land:,} km²")
-            st.progress(0.42)
-        with c7:
-            region = c.get('region', "Universal")
-            p_map = {
-                "Asia": "Paxta, Guruch, Bug'doy, Ipak",
-                "Europe": "Bug'doy, Uzumchilik, Sut-go'sht",
-                "Africa": "Kofe, Kakao, Paxta, Meva",
-                "Americas": "Soya, Makkajo'xori, Bug'doy, Mol go'shti",
-                "Oceania": "Jun, Go'sht, Baliqchilik"
-            }
-            st.success(f"**Asosiy Agrosanoat yo'nalishlari:** \n\n {p_map.get(region, 'Don va sabzavotlar')}")
+        st.write(f"Ushbu davlatda taxminan quyidagicha ta'lim muassasalari mavjud:")
+        st.metric("Universitetlar", f"~{unis:,}")
+        st.metric("Kollej va Litseylar", f"~{colleges:,}")
+        st.metric("Maktablar", f"~{schools:,}")
 
-    with tab4:
-        st.subheader("💳 Iqtisodiy va Lingvistik Ma'lumot")
+    with t3:
+        st.subheader("🚜 Qishloq xo'jaligi salohiyati")
+        unumi_yer = int(maydon * 0.35) # Taxminan 35% ekin maydoni
+        st.write(f"**Taxminiy ekin maydonlari:** ~{unumi_yer:,} km²")
         
+        m_products = {
+            "Asia": "Paxta, Bug'doy, Guruch, Mevalar",
+            "Europe": "Don mahsulotlari, Sut va Go'sht, Uzum",
+            "Africa": "Kofe, Kakao, Banan, Shakarqamish",
+            "Americas": "Makkajo'xori, Soya, Go'sht mahsulotlari"
+        }
+        st.success(f"**Asosiy yetishtiriladigan mahsulotlar:** {m_products.get(mintaqa, 'Don va poliz mahsulotlari')}")
+
+    with t4:
+        st.subheader("💰 Moliya va Muloqot")
+        # Pul birligi
         if c.get('currencies'):
-            curr_code = list(c.get('currencies', {}).keys())[0]
-            curr_info = c.get('currencies', {}).get(curr_code, {})
-            curr_name = curr_info.get('name', "Noma'lum")
-            curr_symb = curr_info.get('symbol', "")
+            cur_code = list(c.get('currencies').keys())[0]
+            cur_name = c['currencies'][cur_code].get('name', "Noma'lum")
+            cur_symbol = c['currencies'][cur_code].get('symbol', "")
+            st.metric("Milliy valyuta", f"{cur_name} ({cur_code})", cur_symbol)
         else:
-            curr_code = "Noma'lum"
-            curr_name = "Noma'lum"
-            curr_symb = ""
+            st.write("Valyuta ma'lumoti topilmadi")
+            
+        # Tillar
+        tillar = ", ".join(c.get('languages', {}).values()) if c.get('languages') else "Noma'lum"
+        st.write(f"🗣️ **Rasmiy tillar:** {tillar}")
         
-        st.metric("Milliy Valyuta", f"{curr_name} ({curr_code})", curr_symb)
-        
-        languages = ", ".join(c.get('languages', {}).values()) if c.get('languages') else "Noma'lum"
-        st.write(f"**Rasmiy Tillari:** {languages}")
-        
-        is_un_member = "Ha" if c.get('unMember') else "Yo'q"
-        st.write(f"**BMT a'zosi:** {is_un_member}")
+        # BMT
+        bmt = "Ha" if c.get('unMember') else "Yo'q"
+        st.write(f"🇺🇳 **BMT a'zosi:** {bmt}")
 
 else:
-    st.error("Ma'lumotlarni yuklashda xatolik yuz berdi. Internet aloqasini tekshiring.")
-
-st.markdown("---")
-footer_name = selected_name if 'data' in locals() and data else ""
-st.caption(f"© 2026 | {footer_name} Global Ma'lumotlar Bazasi | Powered by AI Analytics")
+    st.error("Xatolik: API'dan ma'lumot yuklab bo'lmadi. Internetni tekshiring.")
+    
