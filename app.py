@@ -54,7 +54,7 @@ if data:
         else:
             st.info("Gerb mavjud emas")
     with col_t:
-        # Prezidentlar bazasi (Statik bazani kengaytirish mumkin)
+        # Prezidentlar bazasi
         presidents = {
             "Uzbekistan": "Shavkat Mirziyoyev", "USA": "Joe Biden", "Russia": "Vladimir Putin",
             "Kazakhstan": "Kassym-Jomart Tokayev", "Turkey": "Recep Tayyip Erdoğan", "China": "Xi Jinping",
@@ -64,7 +64,7 @@ if data:
         
         st.subheader(f"📍 {selected_name}")
         st.write(f"**Davlat Rahbari (Prezident):** {pres_name}")
-        st.write(f"**Poytaxt:** {c.get('capital', ['Noma`lum'])[0]}")
+        st.write(f"**Poytaxt:** {c.get('capital', [\"Noma'lum\"])[0]}")
 
     st.markdown("---")
 
@@ -76,7 +76,7 @@ if data:
         with c1:
             lat, lon = c['latlng']
             m = folium.Map(location=[lat, lon], zoom_start=5, tiles="CartoDB Voyager")
-            folium.Marker([lat, lon], popup=selected_name, icon=folium.Icon(color='red', icon='university', prefix='fa')).add_to(m)
+            folium.Marker([lat, lon], popup=selected_name, icon=folium.Icon(color="red", icon="university", prefix="fa")).add_to(m)
             st_folium(m, width=700, height=400)
         with c2:
             st.metric("Umumiy Maydon", f"{c.get('area', 0):,} km²")
@@ -86,7 +86,6 @@ if data:
     with tab2:
         st.subheader("🎓 Ta'lim Muassasalari (Statistik Hisob)")
         pop = c.get('population', 1)
-        # Ilmiy asoslangan taxminiy formula (Aholi soniga nisbatan)
         uni = max(3, int(pop / 350000))
         coll = int(uni * 2.5)
         sch = int(pop / 2800)
@@ -100,7 +99,7 @@ if data:
     with tab3:
         st.subheader("🚜 Qishloq Xo'jaligi va Resurslar")
         area = c.get('area', 1)
-        agro_land = int(area * 0.42) # O'rtacha 42% haydaladigan yer
+        agro_land = int(area * 0.42) 
         
         c6, c7 = st.columns(2)
         with c6:
@@ -117,10 +116,9 @@ if data:
             }
             st.success(f"**Asosiy Agrosanoat yo'nalishlari:** \n\n {p_map.get(region, 'Don va sabzavotlar')}")
 
-            with tab4:
+    with tab4:
         st.subheader("💳 Iqtisodiy va Lingvistik Ma'lumot")
         
-        # Valyuta ma'lumotlarini olish (Xavfsiz usul)
         if c.get('currencies'):
             curr_code = list(c.get('currencies', {}).keys())[0]
             curr_info = c.get('currencies', {}).get(curr_code, {})
@@ -133,11 +131,15 @@ if data:
         
         st.metric("Milliy Valyuta", f"{curr_name} ({curr_code})", curr_symb)
         
-        # Tillar ro'yxati
         languages = ", ".join(c.get('languages', {}).values()) if c.get('languages') else "Noma'lum"
         st.write(f"**Rasmiy Tillari:** {languages}")
         
-        # BMT a'zoligi
         is_un_member = "Ha" if c.get('unMember') else "Yo'q"
         st.write(f"**BMT a'zosi:** {is_un_member}")
-        
+
+else:
+    st.error("Ma'lumotlarni yuklashda xatolik yuz berdi. Internet aloqasini tekshiring.")
+
+st.markdown("---")
+footer_name = selected_name if 'data' in locals() and data else ""
+st.caption(f"© 2026 | {footer_name} Global Ma'lumotlar Bazasi | Powered by AI Analytics")
