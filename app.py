@@ -5,147 +5,93 @@ import requests
 
 st.set_page_config(page_title="Global Country Data Pro", layout="wide")
 
-# ─────────────────────────────────────────────
-# DATA FETCH (PRIMARY + FALLBACK)
-# ─────────────────────────────────────────────
-
 @st.cache_data(ttl=3600)
 def fetch_data():
-    # 1. PRIMARY → APICountries
-    try:
-        res = requests.get("https://www.apicountries.com/countries", timeout=10)
-        if res.status_code == 200:
-            raw = res.json()
-            return format_api_countries(raw)
-    except:
-        pass
-
-    # 2. FALLBACK → REST Countries
     try:
         res = requests.get("https://restcountries.com/v3.1/all", timeout=10)
         if res.status_code == 200:
             return res.json()
     except:
         pass
-
     return None
-
-
-# ─────────────────────────────────────────────
-# FORMATTER (APICountries → REST format)
-# ─────────────────────────────────────────────
-
-def format_api_countries(data):
-    formatted = []
-
-    for c in data:
-        lat = c.get("latitude")
-        lon = c.get("longitude")
-
-        if lat and lon:
-            latlng = [lat, lon]
-        else:
-            latlng = [0, 0]
-
-        formatted.append({
-            "name": {
-                "common": c.get("name", ""),
-                "official": c.get("officialName", "")
-            },
-            "capital": [c.get("capital")] if c.get("capital") else [],
-            "population": c.get("population", 0),
-            "area": c.get("area", 0),
-            "region": c.get("region", ""),
-            "subregion": c.get("subregion", ""),
-            "flags": {
-                "png": c.get("flag", "")
-            },
-            "latlng": latlng,
-            "unMember": None
-        })
-
-    return formatted
-
-
-# ─────────────────────────────────────────────
-# LOAD DATA
-# ─────────────────────────────────────────────
 
 data = fetch_data()
 
 if not data:
-    st.error("❌ API ishlamadi")
+    st.error("API ishlamadi")
     st.stop()
 
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
+st.title("🌍 Interaktiv Geografiya Xarita")
 
-countries = sorted([c["name"]["common"] for c in data if c["name"]["common"]])
+m = folium.Map(location=[20, 0], zoom_start=2)
 
-selected = st.sidebar.selectbox("Davlat tanlang", countries)
+for c in data:
+    latlng = c.get("latlng", [0, 0])
+    if len(latlng) != 2:
+        continue
 
-# ─────────────────────────────────────────────
-# FIND COUNTRY
-# ─────────────────────────────────────────────
+    folium.CircleMarker(
+        location=latlng,
+        radius=4,
+        color="#38bdf8",
+        fill=True,
+        fill_opacity=0.7,
+        tooltip=c["name"]["common"]
+    ).add_to(m)
 
-c = next((x for x in data if x["name"]["common"] == selected), None)
+map_data = st_folium(m, height=500)
 
-if not c:
-    st.warning("Ma'lumot topilmadi")
-    st.stop()
+def find_country(lat, lon):
+    closest = None
+    min_dist = float("inf")
+    for c in data:
+        latlng = c.get("latlng", [0, 0])
+        if len(latlng) != 2:
+            continue
+        d = (lat - latlng[0])**2 + (lon - latlng[1])**2
+        if d < min_dist:
+            min_dist = d
+            closest = c
+    return closest
 
-# ─────────────────────────────────────────────
-# SAFE DATA EXTRACTION
-# ─────────────────────────────────────────────
+clicked = map_data.get("last_clicked")
 
-capital = c.get("capital", ["Noma'lum"])
-capital = capital[0] if capital else "Noma'lum"
+if clicked:
+    c = find_country(clicked["lat"], clicked["lng"])
 
-population = c.get("population", 0)
-area = c.get("area", 0)
+    capital = c.get("capital", ["Noma'lum"])
+    capital = capital[0] if capital else "Noma'lum"
 
-latlng = c.get("latlng", [0, 0])
-lat, lon = latlng if len(latlng) == 2 else (0, 0)
-
-flag = c.get("flags", {}).get("png", "")
-
-# ─────────────────────────────────────────────
-# UI
-# ─────────────────────────────────────────────
-
-st.title(f"🌍 {selected}")
-
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    if flag:
-        st.image(flag, caption="Bayroq")
-
-with col2:
-    st.metric("👥 Aholi", f"{population:,}")
-    st.metric("📐 Maydon", f"{area:,.0f} km²")
-
+    population = c.get("population", 0)
+    area = c.get("area", 0)
     density = population / area if area else 0
-    st.metric("🏘️ Zichlik", f"{density:.1f}")
 
-    st.write(f"🏛️ Poytaxt: **{capital}**")
-    st.write(f"🌐 Region: **{c.get('region','')}**")
+    languages = ", ".join(c.get("languages", {}).values()) if c.get("languages") else "—"
 
-# ─────────────────────────────────────────────
-# MAP
-# ─────────────────────────────────────────────
+    currencies = c.get("currencies", {})
+    currency_text = "—"
+    if currencies:
+        code = list(currencies.keys())[0]
+        name = currencies[code].get("name", "")
+        symbol = currencies[code].get("symbol", "")
+        currency_text = f"{name} ({code}) {symbol}"
 
-st.subheader("🗺️ Xarita")
+    flag = c.get("flags", {}).get("png", "")
 
-m = folium.Map(location=[lat, lon], zoom_start=5)
-folium.Marker([lat, lon], popup=selected).add_to(m)
+    st.markdown("---")
 
-st_folium(m, height=500)
-
-# ─────────────────────────────────────────────
-# FOOTER
-# ─────────────────────────────────────────────
+    st.markdown(f'''
+    <div style="background:#0f172a;padding:20px;border-radius:12px;">
+        <h2 style="color:#38bdf8;">{c["name"]["common"]}</h2>
+        <img src="{flag}" width="120">
+        <p>Poytaxt: {capital}</p>
+        <p>Aholi: {population:,}</p>
+        <p>Maydon: {area:,.0f}</p>
+        <p>Zichlik: {density:.1f}</p>
+        <p>Til: {languages}</p>
+        <p>Valyuta: {currency_text}</p>
+    </div>
+    ''', unsafe_allow_html=True)
 
 st.markdown("---")
 st.caption("Global Country Data Pro · InfoSchoolUz")
