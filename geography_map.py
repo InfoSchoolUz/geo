@@ -5,325 +5,132 @@ import requests
 
 st.set_page_config(page_title="Geografiya Xarita", layout="wide", page_icon="🌍")
 
+# ── STYLE ───────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Exo+2:wght@300;400;600&display=swap');
-
-html, body, [data-testid="stAppViewContainer"] {
-    background: #060d1a !important;
-    color: #e2e8f0;
-    font-family: 'Exo 2', sans-serif;
-}
-[data-testid="stAppViewContainer"] {
-    background: radial-gradient(ellipse at 20% 10%, #0d2040 0%, #060d1a 60%) !important;
-}
-[data-testid="stSidebar"] {
-    background: #0a1628 !important;
-    border-right: 1px solid #1e3a5f;
-}
-[data-testid="stSidebar"] * { color: #e2e8f0 !important; }
-h1 { font-family: 'Orbitron', monospace !important; }
-
+body { background:#060d1a; color:#e2e8f0; }
 .card {
-    background: linear-gradient(135deg, #0d1f35 0%, #0a1628 100%);
-    border: 1px solid #1e3a5f;
-    border-radius: 16px;
-    padding: 20px;
-    box-shadow: 0 0 30px rgba(56,189,248,0.08);
-    margin-bottom: 12px;
-}
-.section-title {
-    color: #facc15;
-    font-family: 'Orbitron', monospace;
-    font-size: 0.7rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    border-bottom: 1px solid #1e3a5f;
-    padding-bottom: 6px;
-    margin-bottom: 10px;
-}
-.info-row {
-    display: flex;
-    justify-content: space-between;
-    padding: 5px 0;
-    border-bottom: 1px solid rgba(30,58,95,0.4);
-    font-size: 0.88rem;
-}
-.info-label { color: #94a3b8; font-weight: 300; }
-.info-value { color: #e2e8f0; font-weight: 600; text-align: right; }
-.badge {
-    display: inline-block;
-    background: rgba(250,204,21,0.1);
-    border: 1px solid rgba(250,204,21,0.3);
-    color: #facc15;
-    border-radius: 20px;
-    padding: 2px 10px;
-    font-size: 0.78rem;
-    margin: 2px;
-}
-.country-name {
-    font-family: 'Orbitron', monospace;
-    font-size: 1.1rem;
-    color: #facc15;
-    text-align: center;
-    margin: 8px 0 4px 0;
-    text-shadow: 0 0 20px rgba(250,204,21,0.4);
-}
-.stat-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-    margin-bottom: 12px;
-}
-.stat-box {
-    background: rgba(250,204,21,0.06);
-    border: 1px solid rgba(250,204,21,0.15);
-    border-radius: 10px;
-    padding: 10px 4px;
-    text-align: center;
-}
-.stat-num {
-    font-family: 'Orbitron', monospace;
-    font-size: 0.9rem;
-    color: #facc15;
-    display: block;
-}
-.stat-label {
-    font-size: 0.65rem;
-    color: #64748b;
-    text-transform: uppercase;
-}
-.hint-box {
-    text-align: center;
-    padding: 60px 20px;
-    color: #334155;
-    border: 1px dashed #1e3a5f;
-    border-radius: 16px;
+    background:#0d1f35;
+    border:1px solid #1e3a5f;
+    border-radius:12px;
+    padding:15px;
+    margin-bottom:10px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ── DATA ──────────────────────────────────────
+# ── DATA FETCH ──────────────────────────────
 @st.cache_data(ttl=3600)
 def fetch_data():
-    try:
-        res = requests.get("https://www.apicountries.com/countries", timeout=15)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        st.error(f"API xato: {e}")
-        return None
+    res = requests.get("https://www.apicountries.com/countries")
+    return res.json()
 
-data = fetch_data()
-if not data:
-    st.stop()
+# ── PREPROCESS ──────────────────────────────
+@st.cache_data
+def preprocess(data):
+    for c in data:
+        pop = c.get("population") or 0
+        area = c.get("area") or 0
+        density = pop / area if area else 0
+        c["density"] = density
 
-name_map     = {c.get("name"): c for c in data if c.get("name")}
-sorted_names = sorted(name_map.keys())
+        if density > 300:
+            c["insight"] = "⚠️ Overpopulated"
+        elif density < 50:
+            c["insight"] = "🌱 Sparse"
+        else:
+            c["insight"] = "✅ Balanced"
+    return data
 
-# ── SESSION ───────────────────────────────────
-if "active_country" not in st.session_state:
-    st.session_state.active_country = None
+data = preprocess(fetch_data())
+name_map = {c["name"]: c for c in data if c.get("name")}
+names = sorted(name_map.keys())
 
-# ── SIDEBAR ───────────────────────────────────
+# ── SESSION ────────────────────────────────
+if "country" not in st.session_state:
+    st.session_state.country = None
+
+# ── SIDEBAR ───────────────────────────────
 with st.sidebar:
-    st.markdown("<h2 style='font-family:Orbitron,monospace;color:#facc15;font-size:1rem;'>🌍 GEOGRAFIYA</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#475569;font-size:0.8rem;'>Davlatni tanlang yoki xaritadan bosing</p>", unsafe_allow_html=True)
+    st.title("🌍 Geografiya")
+    selected = st.selectbox("Davlat", ["—"] + names)
 
-    options = ["— Tanlang —"] + sorted_names
-    cur_idx = 0
-    if st.session_state.active_country in sorted_names:
-        cur_idx = sorted_names.index(st.session_state.active_country) + 1
+    if selected != "—":
+        st.session_state.country = selected
 
-    selected = st.selectbox("🔍 Davlat tanlang", options=options, index=cur_idx)
+# ── MAP ────────────────────────────────────
+active = st.session_state.country
+active_c = name_map.get(active)
 
-    if selected != "— Tanlang —" and selected != st.session_state.active_country:
-        st.session_state.active_country = selected
-        st.rerun()
+center = [20, 0]
+zoom = 2
 
-    st.markdown("---")
-    st.caption("APICountries · InfoSchoolUz")
+if active_c:
+    center = [active_c["latitude"], active_c["longitude"]]
+    zoom = 5
 
-# ── TITLE ─────────────────────────────────────
-st.markdown("""
-<h1 style='text-align:center;color:#facc15;font-size:1.5rem;letter-spacing:0.08em;margin-bottom:2px;'>
-🌍 GEOGRAFIYA XARITA
-</h1>
-<p style='text-align:center;color:#475569;font-size:0.85rem;margin-bottom:16px;'>
-Chap paneldan tanlang yoki xaritadagi markerga bosing
-</p>
-""", unsafe_allow_html=True)
-
-# ── MAP ───────────────────────────────────────
-active   = st.session_state.active_country
-active_c = name_map.get(active) if active else None
-
-if active_c and active_c.get("latitude") and active_c.get("longitude"):
-    map_center = [active_c["latitude"], active_c["longitude"]]
-    map_zoom   = 5
-else:
-    map_center = [20, 0]
-    map_zoom   = 2
-
-m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="CartoDB dark_matter")
+m = folium.Map(location=center, zoom_start=zoom)
 
 for c in data:
-    lat = c.get("latitude")
-    lon = c.get("longitude")
-    if lat is None or lon is None:
+    lat, lon = c.get("latitude"), c.get("longitude")
+    if not lat or not lon:
         continue
-    is_active = (c.get("name") == active)
-    if is_active:
-        folium.CircleMarker(location=[lat, lon], radius=18, color="#4ade80",
-            fill=True, fill_color="#4ade80", fill_opacity=0.2, weight=0).add_to(m)
-        folium.CircleMarker(location=[lat, lon], radius=9, color="#ffffff",
-            fill=True, fill_color="#4ade80", fill_opacity=1.0, weight=2,
-            tooltip=folium.Tooltip(c.get("name"), sticky=True),
-            popup=folium.Popup(c.get("name"), max_width=200)).add_to(m)
-    else:
-        folium.CircleMarker(location=[lat, lon], radius=10, color="#facc15",
-            fill=True, fill_color="#facc15", fill_opacity=0.15, weight=0).add_to(m)
-        folium.CircleMarker(location=[lat, lon], radius=5, color="#ffffff",
-            fill=True, fill_color="#facc15", fill_opacity=1.0, weight=1,
-            tooltip=folium.Tooltip(c.get("name"), sticky=True),
-            popup=folium.Popup(c.get("name"), max_width=200)).add_to(m)
 
-map_data = st_folium(m, height=460, use_container_width=True,
-                     returned_objects=["last_object_clicked_tooltip"])
+    folium.CircleMarker(
+        location=[lat, lon],
+        radius=6,
+        popup=c["name"],
+        tooltip=c["name"]
+    ).add_to(m)
 
-clicked_name = map_data.get("last_object_clicked_tooltip")
-if clicked_name and clicked_name != active:
-    st.session_state.active_country = clicked_name
+map_data = st_folium(m, height=450)
+
+clicked = map_data.get("last_object_clicked_tooltip")
+if clicked:
+    st.session_state.country = clicked
     st.rerun()
 
-# ── DATA PANEL ────────────────────────────────
-active = st.session_state.active_country
-c = name_map.get(active) if active else None
+# ── GLOBAL ANALYTICS ───────────────────────
+max_pop = max(data, key=lambda x: x.get("population") or 0)
+max_area = max(data, key=lambda x: x.get("area") or 0)
 
-if not c:
-    st.markdown("""
-    <div class='hint-box'>
-        🌍 Chap paneldan davlat tanlang<br>
-        yoki xaritadagi <b style='color:#facc15;'>sariq markerga</b> bosing
-    </div>
-    """, unsafe_allow_html=True)
-else:
-    # ── Ma'lumotlarni xavfsiz olish ──
-    def safe_list(val):
-        if isinstance(val, list): return val
-        if isinstance(val, dict): return list(val.values())
-        return []
+st.markdown(f"""
+<div class='card'>
+<b>🌍 GLOBAL</b><br>
+👥 Eng katta aholi: {max_pop["name"]}<br>
+📏 Eng katta hudud: {max_area["name"]}
+</div>
+""", unsafe_allow_html=True)
 
-    def parse_str_list(val):
-        items = safe_list(val)
-        result = []
-        for x in items:
-            if isinstance(x, dict):
-                result.append(x.get("name") or x.get("nativeName") or x.get("code") or str(x))
-            else:
-                result.append(str(x))
-        return ", ".join(result) if result else "—"
+# ── COUNTRY INFO ───────────────────────────
+if active:
+    c = name_map[active]
 
-    population    = c.get("population", 0) or 0
-    area          = c.get("area", 0) or 0
-    density       = population / area if area else 0
-    capital       = c.get("capital") or "—"
-    region        = c.get("region") or "—"
-    subregion     = c.get("subregion") or "—"
-    borders       = c.get("borders") or []
-    languages     = parse_str_list(c.get("languages"))
-    currency_text = parse_str_list(c.get("currencies"))
-    tld           = ", ".join(safe_list(c.get("topLevelDomain"))) or "—"
-    phone         = ", ".join(safe_list(c.get("callingCodes"))) or "—"
-    timezones     = c.get("timezones") or []
-    car_side      = c.get("carSide") or "—"
-    car_signs     = ", ".join(safe_list(c.get("carSigns"))) or "—"
-    independent   = c.get("independent")
-    un_member     = c.get("unMember")
-    gini          = c.get("gini") or "—"
-    alpha3        = c.get("alpha3Code") or "—"
-    flag          = c.get("flag") or ""
+    st.markdown(f"""
+<div class='card'>
+<h3>{active}</h3>
+👥 Population: {c.get("population")}<br>
+📏 Area: {c.get("area")}<br>
+📊 Density: {c.get("density"):.1f}<br>
+🧠 Insight: {c.get("insight")}
+</div>
+""", unsafe_allow_html=True)
 
-    ind_text = "✅ Ha" if independent else "❌ Yo'q"
-    un_text  = "✅ Ha" if un_member  else "❌ Yo'q"
-    borders_html = "".join([f"<span class='badge'>{b}</span>" for b in borders]) \
-                   if borders else "<span style='color:#475569;'>Yo'q</span>"
+# ── COMPARE MODE ───────────────────────────
+st.markdown("## ⚔️ Compare")
 
-    st.markdown("---")
-    col1, col2, col3 = st.columns([1.2, 1.2, 1], gap="medium")
+c1 = st.selectbox("1-davlat", names, key="c1")
+c2 = st.selectbox("2-davlat", names, key="c2")
 
-    # ── COL 1 ──
-    with col1:
-        flag_html = f'<img src="{flag}" style="height:52px;border-radius:4px;">' if flag else ""
+if c1 and c2:
+    d1 = name_map[c1]
+    d2 = name_map[c2]
 
-        st.markdown(f"""
-        <div class='card' style='text-align:center;'>
-            <div style='margin-bottom:8px;'>{flag_html}</div>
-            <div class='country-name'>{active}</div>
-            <div style='color:#475569;font-size:0.78rem;'>{region} · {subregion}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown(f"""
-        <div class='stat-grid'>
-            <div class='stat-box'>
-                <span class='stat-num'>{population:,.0f}</span>
-                <span class='stat-label'>Aholi</span>
-            </div>
-            <div class='stat-box'>
-                <span class='stat-num'>{area:,.0f}</span>
-                <span class='stat-label'>km²</span>
-            </div>
-            <div class='stat-box'>
-                <span class='stat-num'>{density:.1f}</span>
-                <span class='stat-label'>Zichlik</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown(f"""
-        <div class='card'>
-            <div class='section-title'>📌 Asosiy</div>
-            <div class='info-row'><span class='info-label'>Poytaxt</span><span class='info-value'>{capital}</span></div>
-            <div class='info-row'><span class='info-label'>ISO kodi</span><span class='info-value'>{alpha3}</span></div>
-            <div class='info-row'><span class='info-label'>Mustaqil</span><span class='info-value'>{ind_text}</span></div>
-            <div class='info-row'><span class='info-label'>BMT a'zosi</span><span class='info-value'>{un_text}</span></div>
-            <div class='info-row'><span class='info-label'>GINI</span><span class='info-value'>{gini}</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ── COL 2 ──
-    with col2:
-        st.markdown(f"""
-        <div class='card'>
-            <div class='section-title'>🗣️ Madaniyat</div>
-            <div class='info-row'><span class='info-label'>Tillar</span><span class='info-value'>{languages}</span></div>
-            <div class='info-row'><span class='info-label'>Valyuta</span><span class='info-value'>{currency_text}</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown(f"""
-        <div class='card'>
-            <div class='section-title'>📡 Texnologiya</div>
-            <div class='info-row'><span class='info-label'>Domen</span><span class='info-value'>{tld}</span></div>
-            <div class='info-row'><span class='info-label'>Tel. kod</span><span class='info-value'>+{phone}</span></div>
-            <div class='info-row'><span class='info-label'>Timezone</span><span class='info-value'>{", ".join(timezones) if timezones else "—"}</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown(f"""
-        <div class='card'>
-            <div class='section-title'>🚗 Transport</div>
-            <div class='info-row'><span class='info-label'>Yo'l tomoni</span><span class='info-value'>{car_side}</span></div>
-            <div class='info-row'><span class='info-label'>Belgilar</span><span class='info-value'>{car_signs}</span></div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ── COL 3 ──
-    with col3:
-        st.markdown(f"""
-        <div class='card'>
-            <div class='section-title'>🌐 Qo'shni davlatlar</div>
-            <div style='padding:8px 0;'>{borders_html}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown(f"""
+<div class='card'>
+<b>{c1} vs {c2}</b><br>
+👥 {d1["population"]} | {d2["population"]}<br>
+📏 {d1["area"]} | {d2["area"]}<br>
+📊 {d1["density"]:.1f} | {d2["density"]:.1f}
+</div>
+""", unsafe_allow_html=True)
