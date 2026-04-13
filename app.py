@@ -120,7 +120,7 @@ if data:
     with tab4:
         st.subheader("💳 Iqtisodiy va Lingvistik Ma'lumot")
         curr_code = list(c.get('currencies', {}).keys())[0] if c.get('currencies') else "Noma'lum"
-        curr_name = c.get('currencies', {}).get(curr_code, {}).get('name', 'Noma'lum')
+        curr_name = c.get('currencies', {}).get(curr_code, {}).get('name', "Noma'lum")
         curr_symb = c.get('currencies', {}).get(curr_code, {}).get('symbol', '')
         
         st.metric("Milliy Valyuta", f"{curr_name} ({curr_code})", curr_symb)
