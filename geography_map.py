@@ -307,7 +307,7 @@ else:
             <div class='section-title'>📡 Texnologiya</div>
             <div class='info-row'><span class='info-label'>Domen</span><span class='info-value'>{tld}</span></div>
             <div class='info-row'><span class='info-label'>Tel. kod</span><span class='info-value'>+{phone}</span></div>
-            <div class='info-row'><span class='info-label'>Timezone</span><span class='info-value'>{len(timezones)} ta</span></div>
+            <div class='info-row'><span class='info-label'>Timezone</span><span class='info-value'>{", ".join(timezones) if timezones else "—"}</span></div>
         </div>
         """, unsafe_allow_html=True)
 
