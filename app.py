@@ -117,18 +117,35 @@ if data:
             }
             st.success(f"**Asosiy Agrosanoat yo'nalishlari:** \n\n {p_map.get(region, 'Don va sabzavotlar')}")
 
-    with tab4:
+        with tab4:
         st.subheader("💳 Iqtisodiy va Lingvistik Ma'lumot")
-        curr_code = list(c.get('currencies', {}).keys())[0] if c.get('currencies') else "Noma'lum"
-        curr_name = c.get('currencies', {}).get(curr_code, {}).get('name', "Noma'lum")
-        curr_symb = c.get('currencies', {}).get(curr_code, {}).get('symbol', '')
+        
+        # Valyuta ma'lumotlarini olish
+        if c.get('currencies'):
+            curr_code = list(c.get('currencies', {}).keys())[0]
+            curr_info = c.get('currencies', {}).get(curr_code, {})
+            curr_name = curr_info.get('name', "Noma'lum")
+            curr_symb = curr_info.get('symbol', "")
+        else:
+            curr_code = "Noma'lum"
+            curr_name = "Noma'lum"
+            curr_symb = ""
         
         st.metric("Milliy Valyuta", f"{curr_name} ({curr_code})", curr_symb)
-        st.write(f"**Rasmiy Tillari:** {', '.join(c.get('languages', {}).values())}")
-        st.write(f"**BMT a'zosi:** {'Ha' if c.get('unMember') else 'Yo'q'}")
+        
+        # Tillar ro'yxati
+        languages = ", ".join(c.get('languages', {}).values()) if c.get('languages') else "Noma'lum"
+        st.write(f"**Rasmiy Tillari:** {languages}")
+        
+        # BMT a'zoligi (Xatolik bergan qator shu yerda to'g'rilandi)
+        is_un_member = "Ha" if c.get('unMember') else "Yo'q"
+        st.write(f"**BMT a'zosi:** {is_un_member}")
 
 else:
     st.error("Ma'lumotlarni yuklashda xatolik yuz berdi. Internet aloqasini tekshiring.")
 
 st.markdown("---")
-st.caption(f"© 2026 | {selected_name if data else ''} Global Ma'lumotlar Bazasi | Powered by AI Analytics")
+# Footer qismidagi xatolik ham olib tashlandi
+footer_name = selected_name if 'data' in locals() and data else ""
+st.caption(f"© 2026 | {footer_name} Global Ma'lumotlar Bazasi | Powered by AI Analytics")
+    
