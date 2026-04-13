@@ -117,10 +117,10 @@ if data:
             }
             st.success(f"**Asosiy Agrosanoat yo'nalishlari:** \n\n {p_map.get(region, 'Don va sabzavotlar')}")
 
-        with tab4:
+            with tab4:
         st.subheader("💳 Iqtisodiy va Lingvistik Ma'lumot")
         
-        # Valyuta ma'lumotlarini olish
+        # Valyuta ma'lumotlarini olish (Xavfsiz usul)
         if c.get('currencies'):
             curr_code = list(c.get('currencies', {}).keys())[0]
             curr_info = c.get('currencies', {}).get(curr_code, {})
@@ -137,15 +137,7 @@ if data:
         languages = ", ".join(c.get('languages', {}).values()) if c.get('languages') else "Noma'lum"
         st.write(f"**Rasmiy Tillari:** {languages}")
         
-        # BMT a'zoligi (Xatolik bergan qator shu yerda to'g'rilandi)
+        # BMT a'zoligi
         is_un_member = "Ha" if c.get('unMember') else "Yo'q"
         st.write(f"**BMT a'zosi:** {is_un_member}")
-
-else:
-    st.error("Ma'lumotlarni yuklashda xatolik yuz berdi. Internet aloqasini tekshiring.")
-
-st.markdown("---")
-# Footer qismidagi xatolik ham olib tashlandi
-footer_name = selected_name if 'data' in locals() and data else ""
-st.caption(f"© 2026 | {footer_name} Global Ma'lumotlar Bazasi | Powered by AI Analytics")
-    
+        
