@@ -3,95 +3,173 @@ import folium
 from streamlit_folium import st_folium
 import requests
 
-st.set_page_config(page_title="Global Country Data Pro", layout="wide")
+st.set_page_config(page_title="Geografiya Xarita", layout="wide")
+
+# ─────────────────────────────────────────────
+# DATA FETCH (APICOUNTRIES ONLY)
+# ─────────────────────────────────────────────
 
 @st.cache_data(ttl=3600)
 def fetch_data():
     try:
-        res = requests.get("https://restcountries.com/v3.1/all", timeout=10)
-        if res.status_code == 200:
-            return res.json()
-    except:
-        pass
-    return None
+        url = "https://www.apicountries.com/countries"
+        res = requests.get(url, timeout=15)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        st.error(f"API xato: {e}")
+        return None
+
 
 data = fetch_data()
 
 if not data:
-    st.error("API ishlamadi")
     st.stop()
 
-st.title("🌍 Interaktiv Geografiya Xarita")
+# ─────────────────────────────────────────────
+# TITLE
+# ─────────────────────────────────────────────
+
+st.markdown("""
+<h1 style='text-align:center;color:#38bdf8;'>🌍 Interaktiv Geografiya Xarita</h1>
+<p style='text-align:center;'>Davlat ustiga bosing</p>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# MAP
+# ─────────────────────────────────────────────
 
 m = folium.Map(location=[20, 0], zoom_start=2)
 
 for c in data:
-    latlng = c.get("latlng", [0, 0])
-    if len(latlng) != 2:
+    lat = c.get("latitude")
+    lon = c.get("longitude")
+
+    if lat is None or lon is None:
         continue
 
     folium.CircleMarker(
-        location=latlng,
+        location=[lat, lon],
         radius=4,
         color="#38bdf8",
         fill=True,
         fill_opacity=0.7,
-        tooltip=c["name"]["common"]
+        tooltip=c.get("name")
     ).add_to(m)
 
 map_data = st_folium(m, height=500)
 
+# ─────────────────────────────────────────────
+# COUNTRY FINDER
+# ─────────────────────────────────────────────
+
 def find_country(lat, lon):
     closest = None
     min_dist = float("inf")
+
     for c in data:
-        latlng = c.get("latlng", [0, 0])
-        if len(latlng) != 2:
+        clat = c.get("latitude")
+        clon = c.get("longitude")
+
+        if clat is None or clon is None:
             continue
-        d = (lat - latlng[0])**2 + (lon - latlng[1])**2
+
+        d = (lat - clat)**2 + (lon - clon)**2
+
         if d < min_dist:
             min_dist = d
             closest = c
+
     return closest
 
+
 clicked = map_data.get("last_clicked")
+
+# ─────────────────────────────────────────────
+# SHOW DATA
+# ─────────────────────────────────────────────
 
 if clicked:
     c = find_country(clicked["lat"], clicked["lng"])
 
-    capital = c.get("capital", ["Noma'lum"])
-    capital = capital[0] if capital else "Noma'lum"
+    if c:
+        # 🟢 Asosiy
+        name = c.get("name", "Noma'lum")
+        capital = c.get("capital", "Noma'lum")
+        population = c.get("population", 0)
+        area = c.get("area", 0)
+        density = population / area if area else 0
 
-    population = c.get("population", 0)
-    area = c.get("area", 0)
-    density = population / area if area else 0
+        # 🌍 Geografiya
+        region = c.get("region", "—")
+        subregion = c.get("subregion", "—")
+        borders = c.get("borders", [])
 
-    languages = ", ".join(c.get("languages", {}).values()) if c.get("languages") else "—"
+        # 🗣️ Til
+        languages = ", ".join(c.get("languages", [])) if c.get("languages") else "—"
 
-    currencies = c.get("currencies", {})
-    currency_text = "—"
-    if currencies:
-        code = list(currencies.keys())[0]
-        name = currencies[code].get("name", "")
-        symbol = currencies[code].get("symbol", "")
-        currency_text = f"{name} ({code}) {symbol}"
+        # 💱 Valyuta
+        currencies = ", ".join([x.get("name","") for x in c.get("currencies", [])]) if c.get("currencies") else "—"
 
-    flag = c.get("flags", {}).get("png", "")
+        # 📡 Tech
+        tld = ", ".join(c.get("topLevelDomain", []))
+        phone = ", ".join(c.get("callingCodes", []))
+        timezones = len(c.get("timezones", []))
 
-    st.markdown("---")
+        # 🚗 Transport
+        car_side = c.get("carSide", "—")
 
-    st.markdown(f'''
-    <div style="background:#0f172a;padding:20px;border-radius:12px;">
-        <h2 style="color:#38bdf8;">{c["name"]["common"]}</h2>
+        # 🌐 Global
+        fifa = c.get("alpha3Code", "—")
+
+        # 📊 Analytics
+        gini = c.get("gini", "—")
+
+        flag = c.get("flag", "")
+
+        st.markdown("---")
+
+        st.markdown(f"""
+        <div style="background:#0f172a;padding:20px;border-radius:16px">
+
+        <h2 style="color:#38bdf8;">🌍 {name}</h2>
+
         <img src="{flag}" width="120">
-        <p>Poytaxt: {capital}</p>
-        <p>Aholi: {population:,}</p>
-        <p>Maydon: {area:,.0f}</p>
-        <p>Zichlik: {density:.1f}</p>
-        <p>Til: {languages}</p>
-        <p>Valyuta: {currency_text}</p>
-    </div>
-    ''', unsafe_allow_html=True)
+
+        <h4>📌 Asosiy ma'lumot</h4>
+        <p><b>Poytaxt:</b> {capital}</p>
+        <p><b>Aholi:</b> {population:,}</p>
+        <p><b>Maydon:</b> {area:,.0f} km²</p>
+        <p><b>Zichlik:</b> {density:.1f}</p>
+
+        <h4>🌍 Geografiya</h4>
+        <p>Mintaqa: {region} ({subregion})</p>
+        <p>Qo‘shnilar: {len(borders)} ta</p>
+
+        <h4>🗣️ Madaniyat</h4>
+        <p>Tillar: {languages}</p>
+        <p>Valyuta: {currencies}</p>
+
+        <h4>📡 Texnologiya</h4>
+        <p>Domen: {tld}</p>
+        <p>Telefon kodi: {phone}</p>
+        <p>Timezone: {timezones} ta</p>
+
+        <h4>🚗 Transport</h4>
+        <p>Yo‘l tomoni: {car_side}</p>
+
+        <h4>🌐 Global</h4>
+        <p>FIFA kodi: {fifa}</p>
+
+        <h4>📊 Tahlil</h4>
+        <p>GINI: {gini}</p>
+
+        </div>
+        """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────
+# FOOTER
+# ─────────────────────────────────────────────
 
 st.markdown("---")
-st.caption("Global Country Data Pro · InfoSchoolUz")
+st.caption("Geografiya Platformasi · APICountries API")
